@@ -48,10 +48,13 @@ def ensure_schema(db_path):
 
 def get_db_stats(db_path):
     """Return {'exists', 'total', 'last_update'} for the info line."""
-    if not os.path.exists(db_path):
+    if not os.path.isfile(db_path):
         return {'exists': False, 'total': 0, 'last_update': None}
 
-    conn = sqlite3.connect(db_path)
+    try:
+        conn = sqlite3.connect(db_path)
+    except Exception:
+        return {'exists': False, 'total': 0, 'last_update': None}
     cur = conn.cursor()
     total = 0
     last_update = None

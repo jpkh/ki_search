@@ -4,9 +4,9 @@ import wx
 import pcbnew
 import webbrowser
 
-from .config import COLUMNS, default_db_relpath
+from .config import COLUMNS, default_db_relpath, default_db_filename
 from .settings import load_options, save_options, SettingsDialog
-from .importer import get_db_stats, ImportDialog
+from .importer import get_db_stats, ensure_schema, ImportDialog
 
 
 class SearchDatabasePlugin(pcbnew.ActionPlugin):
@@ -70,7 +70,9 @@ class SearchDialog(wx.Dialog):
         self.result_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.on_item_click)
 
         panel.SetSizer(vbox)
-        self._refresh_info()
+        # Defer the info refresh so the main dialog shows before any
+        # create-database prompt appears
+        wx.CallAfter(self._refresh_info)
 
     # ----- UI helpers ------------------------------------------------------
 
@@ -88,20 +90,37 @@ class SearchDialog(wx.Dialog):
         db_path = self.get_database_path()
         stats = get_db_stats(db_path)
         if not stats['exists']:
-            self.info_label.SetLabel("Database not found: {}".format(db_path))
-        else:
-            last = stats['last_update'] or 'unknown'
-            self.info_label.SetLabel(
-                "Components in DB: {}   |   DB: {}   |   Last update: {}".format(
-                    stats['total'], db_path, last))
+            if not self._ensure_database(db_path):
+                self.info_label.SetLabel("Database not found: {}".format(db_path))
+                return
+            stats = get_db_stats(db_path)
+        last = stats['last_update'] or 'unknown'
+        self.info_label.SetLabel(
+            "Components in DB: {}   |   DB: {}   |   Last update: {}".format(
+                stats['total'], db_path, last))
+
+    def _ensure_database(self, db_path):
+        """Ask the user to create the database when it does not exist."""
+        if os.path.isfile(db_path):
+            return True
+        dlg = wx.MessageDialog(
+            self,
+            "Database not found:\n{}\n\nCreate a new empty database?".format(db_path),
+            "Database missing", wx.YES_NO | wx.ICON_QUESTION)
+        result = dlg.ShowModal()
+        dlg.Destroy()
+        if result == wx.ID_YES:
+            ensure_schema(db_path)
+            return True
+        return False
 
     # ----- Paths -----------------------------------------------------------
 
     def get_database_path(self):
-        """Database path: settings override, else USER_DOCS default location."""
+        """Database file path: settings folder override, else USER_DOCS default."""
         override = (self.options.get('db_path') or '').strip()
         if override:
-            return override
+            return os.path.join(override, default_db_filename)
         user_docs = os.getenv('USER_DOCS')
         if not user_docs:
             user_docs = os.path.expanduser("~/Documents")  # Fallback for safety
@@ -129,6 +148,8 @@ class SearchDialog(wx.Dialog):
             return
 
         db_path = self.get_database_path()
+        if not self._ensure_database(db_path):
+            return
         results = self.search_database(db_path, search_term)
 
         if not results:
@@ -167,7 +188,7 @@ class SearchDialog(wx.Dialog):
 
     def search_database(self, db_path, search_term):
         """Query the SQLite database for matching components."""
-        if not os.path.exists(db_path):
+        if not os.path.isfile(db_path):
             wx.MessageBox("Database not found at {}".format(db_path),
                           "Error", wx.OK | wx.ICON_ERROR)
             return []

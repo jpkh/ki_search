@@ -14,5 +14,7 @@ COLUMNS = [
     ('order_price',             'OP($)',        70,  True),
 ]
 
+default_db_filename = 'components.db'
+
 # Default database location relative to USER_DOCS
-default_db_relpath = os.path.join('KiCAD', 'Gen', 'scripts', 'components.db')
+default_db_relpath = os.path.join('KiCAD', 'Gen', 'scripts', default_db_filename)

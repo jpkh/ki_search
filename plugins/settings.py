@@ -58,10 +58,10 @@ class SettingsDialog(wx.Dialog):
             self.column_checks[key] = cb
             vbox.Add(cb, flag=wx.LEFT | wx.RIGHT, border=20)
 
-        vbox.Add(wx.StaticText(self, label="Database path (empty = auto from USER_DOCS):"),
+        vbox.Add(wx.StaticText(self, label="Database folder (components.db is created inside;\nempty = auto from USER_DOCS):"),
                  flag=wx.ALL, border=10)
-        self.db_path_ctrl = wx.TextCtrl(self)
-        self.db_path_ctrl.SetValue(options.get('db_path', ''))
+        self.db_path_ctrl = wx.DirPickerCtrl(self, message="Choose the database folder")
+        self.db_path_ctrl.SetPath(options.get('db_path', ''))
         vbox.Add(self.db_path_ctrl,
                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
