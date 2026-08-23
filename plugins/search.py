@@ -30,7 +30,7 @@ class SearchDialog(wx.Dialog):
     DB_COLUMN_ORDER = [c[0] for c in COLUMNS]
 
     def __init__(self, parent):
-        super().__init__(parent, title="Search Components", size=(1200, 620))
+        super().__init__(parent, title="Search Components", size=(1200, 420))
         self.options = load_options()
 
         panel = wx.Panel(self)

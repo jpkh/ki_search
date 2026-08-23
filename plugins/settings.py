@@ -46,22 +46,21 @@ class SettingsDialog(wx.Dialog):
     def __init__(self, parent, options):
         super().__init__(parent, title="KI-Search Settings", size=(420, 520))
 
-        panel = wx.Panel(self)
         vbox = wx.BoxSizer(wx.VERTICAL)
 
-        vbox.Add(wx.StaticText(panel, label="Visible columns:"),
+        vbox.Add(wx.StaticText(self, label="Visible columns:"),
                  flag=wx.ALL, border=10)
 
         self.column_checks = {}
         for key, header, _width, _right in COLUMNS:
-            cb = wx.CheckBox(panel, label=header)
+            cb = wx.CheckBox(self, label=header)
             cb.SetValue(key in options.get('active_columns', []))
             self.column_checks[key] = cb
             vbox.Add(cb, flag=wx.LEFT | wx.RIGHT, border=20)
 
-        vbox.Add(wx.StaticText(panel, label="Database path (empty = auto from USER_DOCS):"),
+        vbox.Add(wx.StaticText(self, label="Database path (empty = auto from USER_DOCS):"),
                  flag=wx.ALL, border=10)
-        self.db_path_ctrl = wx.TextCtrl(panel)
+        self.db_path_ctrl = wx.TextCtrl(self)
         self.db_path_ctrl.SetValue(options.get('db_path', ''))
         vbox.Add(self.db_path_ctrl,
                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
@@ -69,8 +68,9 @@ class SettingsDialog(wx.Dialog):
         btns = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         vbox.Add(btns, flag=wx.ALIGN_RIGHT | wx.ALL, border=10)
 
-        panel.SetSizer(vbox)
+        self.SetSizer(vbox)
         self.Fit()
+        self.SetMinSize(self.GetSize())
         self.Centre(wx.BOTH)
 
     def get_options(self):

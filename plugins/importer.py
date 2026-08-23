@@ -215,33 +215,33 @@ class ImportDialog(wx.Dialog):
     SUPPLIERS = [('LCSC', 'LCSC'), ('DigiKey', 'DK'), ('Mouser', 'M')]
 
     def __init__(self, parent, db_path):
-        super().__init__(parent, title="Import Components CSV", size=(520, 280))
+        super().__init__(parent, title="Import Components CSV", size=(520, 300))
         self.db_path = db_path
 
-        panel = wx.Panel(self)
         vbox = wx.BoxSizer(wx.VERTICAL)
 
-        vbox.Add(wx.StaticText(panel, label="Supplier CSV format:"),
+        vbox.Add(wx.StaticText(self, label="Supplier CSV format:"),
                  flag=wx.ALL, border=10)
         self.supplier_radio = wx.RadioBox(
-            panel, choices=[s[0] for s in self.SUPPLIERS],
+            self, choices=[s[0] for s in self.SUPPLIERS],
             majorDimension=1, style=wx.RA_SPECIFY_ROWS)
         self.supplier_radio.SetSelection(0)  # LCSC is the default
         vbox.Add(self.supplier_radio, flag=wx.LEFT | wx.RIGHT, border=10)
 
-        vbox.Add(wx.StaticText(panel, label="CSV file:"),
+        vbox.Add(wx.StaticText(self, label="CSV file:"),
                  flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.file_picker = wx.FilePickerCtrl(panel, wildcard="CSV files (*.csv)|*.csv")
+        self.file_picker = wx.FilePickerCtrl(self, wildcard="CSV files (*.csv)|*.csv")
         vbox.Add(self.file_picker, flag=wx.EXPAND | wx.ALL, border=10)
 
-        self.status = wx.StaticText(panel, label="Target DB: {}".format(db_path))
+        self.status = wx.StaticText(self, label="Target DB: {}".format(db_path))
         vbox.Add(self.status, flag=wx.LEFT | wx.RIGHT, border=10)
 
         btns = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         vbox.Add(btns, flag=wx.ALIGN_RIGHT | wx.ALL, border=10)
 
-        panel.SetSizer(vbox)
+        self.SetSizer(vbox)
         self.Fit()
+        self.SetMinSize(self.GetSize())
         self.Centre(wx.BOTH)
 
         # Make OK run the import instead of just closing the dialog
