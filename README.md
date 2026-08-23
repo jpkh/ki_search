@@ -8,8 +8,22 @@ page on lcsc.com.
 
 - Full-text search across LCSC part number, manufacturer part number,
   manufacturer, package, description, order quantity and prices.
-- Results in a sortable list with the LCSC part number as a clickable link.
+- Press **Enter** in the search box to search.
+- Info line under the results: total components in the DB, database location,
+  and date/time of the last import.
+- Import supplier CSV files straight from the dialog (LCSC and DigiKey;
+  Mouser planned). Imported files are archived in `cvsdone/` next to the DB.
+- Results in a list with the LCSC part number as a clickable link.
+- Settings dialog: choose which columns are visible and set a custom
+  database path.
 - Database lives outside the plugin package (your documents folder).
+
+## Importing data
+
+In the dialog choose **Import CSV…**, pick the supplier format (LCSC is the
+default) and the CSV file. Supported columns are the LCSC order export and
+DigiKey order export formats. After a successful import the info line updates
+with the new total and last-update time.
 
 ## Database
 
@@ -33,8 +47,9 @@ use **Install from File…** with a release zip from
 ## Usage
 
 Open a board in the PCB editor and click the KI-Search toolbar button, enter a
-search term and press **Search**. Double-click an LCSC part number to open it
-on lcsc.com.
+search term and press **Enter** (or click **Search**). Double-click an LCSC
+part number to open it on lcsc.com. **Settings…** controls the visible columns
+and database path.
 
 ## License
 

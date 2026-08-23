@@ -1,0 +1,18 @@
+import os
+
+settingsFileName = 'ki-search-options.json'
+
+# (key, header, width, right-aligned?)
+COLUMNS = [
+    ('lcsc_part_number',        'LCSC Pn',      120, False),
+    ('manufacture_part_number', 'Mfg Part Nr',  150, False),
+    ('manufacturer',            'Manufacturer', 120, False),
+    ('package',                 'Package',      100, False),
+    ('description',             'Description',  400, False),
+    ('order_qty',               'O-Qty',        70,  True),
+    ('unit_price',              'UP($)',        70,  True),
+    ('order_price',             'OP($)',        70,  True),
+]
+
+# Default database location relative to USER_DOCS
+default_db_relpath = os.path.join('KiCAD', 'Gen', 'scripts', 'components.db')
