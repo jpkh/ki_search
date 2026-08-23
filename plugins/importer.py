@@ -33,6 +33,15 @@ def ensure_schema(db_path):
         value TEXT
     )
     ''')
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS imports (
+        file_name TEXT PRIMARY KEY,
+        content_hash TEXT,
+        supplier TEXT,
+        imported_at TEXT,
+        rows_added INTEGER
+    )
+    ''')
     conn.commit()
     conn.close()
 
@@ -116,6 +125,10 @@ def import_csv(db_path, csv_path, supplier):
     db_dir = os.path.dirname(os.path.abspath(db_path))
     cvsdone = os.path.join(db_dir, 'cvsdone')
 
+    file_name = os.path.basename(csv_path)
+    content_hash = _file_hash(csv_path)
+
+    # Legacy fallback: identical file already archived in cvsdone/
     if _is_duplicate(csv_path, cvsdone):
         raise RuntimeError(
             "This CSV was already imported (identical file found in cvsdone/).")
@@ -125,6 +138,16 @@ def import_csv(db_path, csv_path, supplier):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
+        # Duplicate check against the import log: content hash or file name
+        cur.execute(
+            "SELECT file_name, imported_at FROM imports WHERE content_hash = ? OR file_name = ?",
+            (content_hash, file_name))
+        existing = cur.fetchone()
+        if existing:
+            raise RuntimeError(
+                "This CSV was already imported as '{}' on {}.".format(
+                    existing[0], existing[1]))
+
         with open(csv_path, newline='', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -188,9 +211,14 @@ def import_csv(db_path, csv_path, supplier):
                 ''', data)
                 added += 1
 
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        cur.execute(
+            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (file_name, content_hash, supplier, now, added))
         cur.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_update', ?)",
-            (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
+            (now,))
         conn.commit()
     except Exception:
         conn.rollback()
