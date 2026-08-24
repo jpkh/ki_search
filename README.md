@@ -79,4 +79,4 @@ python tools/processcvs-new.py -outDir C:\Temp\comp --rescan
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE).
+GPL-3.0 — see [LICENSE](LICENSE). Copyright (c) 2026 Jani Hirvinen.

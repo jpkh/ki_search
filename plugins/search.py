@@ -1,3 +1,17 @@
+##########################################################
+#
+# Script: search.py
+# Author: Jani Hirvinen (jpkh)
+# Contact: jphelirc@gmail.com
+# Repository: https://github.com/jpkh/ki_search
+#
+# Copyright (c) 2026 Jani Hirvinen
+# License: GPL-3.0 - see the LICENSE file
+#
+# Description: Main search dialog and ActionPlugin for KI-Search.
+#
+##########################################################
+
 import os
 import sqlite3
 import wx

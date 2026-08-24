@@ -1,3 +1,17 @@
+##########################################################
+#
+# Script: settings.py
+# Author: Jani Hirvinen (jpkh)
+# Contact: jphelirc@gmail.com
+# Repository: https://github.com/jpkh/ki_search
+#
+# Copyright (c) 2026 Jani Hirvinen
+# License: GPL-3.0 - see the LICENSE file
+#
+# Description: Settings dialog and options persistence.
+#
+##########################################################
+
 import json
 import os
 import wx

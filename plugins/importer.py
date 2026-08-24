@@ -1,3 +1,17 @@
+##########################################################
+#
+# Script: importer.py
+# Author: Jani Hirvinen (jpkh)
+# Contact: jphelirc@gmail.com
+# Repository: https://github.com/jpkh/ki_search
+#
+# Copyright (c) 2026 Jani Hirvinen
+# License: GPL-3.0 - see the LICENSE file
+#
+# Description: CSV import, database schema, stats and import dialog.
+#
+##########################################################
+
 import csv
 import hashlib
 import os

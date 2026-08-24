@@ -1,3 +1,17 @@
+##########################################################
+#
+# Script: __init__.py
+# Author: Jani Hirvinen (jpkh)
+# Contact: jphelirc@gmail.com
+# Repository: https://github.com/jpkh/ki_search
+#
+# Copyright (c) 2026 Jani Hirvinen
+# License: GPL-3.0 - see the LICENSE file
+#
+# Description: Plugin registration for KI-Search.
+#
+##########################################################
+
 from .log_util import log_message
 
 try:

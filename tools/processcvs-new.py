@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+##########################################################
+#
+# Script: processcvs-new.py
+# Author: Jani Hirvinen (jpkh)
+# Contact: jphelirc@gmail.com
+# Repository: https://github.com/jpkh/ki_search
+#
+# Copyright (c) 2026 Jani Hirvinen
+# License: GPL-3.0 - see the LICENSE file
+#
+# Description: Bulk CSV import and price repair tool for KI-Search.
+#
+##########################################################
 """Batch import of supplier CSVs into the KI-Search components database.
 
 Processes every .csv in the input folder, oldest first (ordered by the

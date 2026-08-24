@@ -1,3 +1,17 @@
+##########################################################
+#
+# Script: log_util.py
+# Author: Jani Hirvinen (jpkh)
+# Contact: jphelirc@gmail.com
+# Repository: https://github.com/jpkh/ki_search
+#
+# Copyright (c) 2026 Jani Hirvinen
+# License: GPL-3.0 - see the LICENSE file
+#
+# Description: Logging helper.
+#
+##########################################################
+
 import pcbnew
 
 def log_message(message, log_type="INFO"):

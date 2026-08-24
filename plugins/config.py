@@ -1,9 +1,23 @@
+##########################################################
+#
+# Script: config.py
+# Author: Jani Hirvinen (jpkh)
+# Contact: jphelirc@gmail.com
+# Repository: https://github.com/jpkh/ki_search
+#
+# Copyright (c) 2026 Jani Hirvinen
+# License: GPL-3.0 - see the LICENSE file
+#
+# Description: Defaults: columns, settings filename, plugin version.
+#
+##########################################################
+
 import os
 
 settingsFileName = 'ki-search-options.json'
 
 # Shown in the dialog title; bump together with metadata.json
-plugin_version = '0.1.0'
+plugin_version = '1.0.0'
 
 # Stamp stored on every imported component row (invisible, internal only).
 # Bump it whenever the components table schema changes in a way that

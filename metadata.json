@@ -8,7 +8,7 @@
     "author": {
         "name": "Jani Hirvinen",
         "contact": {
-            "email": "jpsecond@gmail.com"
+            "email": "jphelirc@gmail.com"
         }
     },
     "license": "GPL-3.0",
@@ -23,8 +23,8 @@
     ],
     "versions": [
         {
-            "version": "0.1.0",
-            "status": "development",
+            "version": "1.0.0",
+            "status": "stable",
             "kicad_version": "8.0",
             "kicad_version_max": "10.99",
             "platforms": [
