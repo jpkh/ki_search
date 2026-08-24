@@ -24,7 +24,8 @@ def ensure_schema(db_path):
         min_mult_order_qty TEXT,
         unit_price REAL,
         order_price REAL,
-        supplier TEXT DEFAULT 'LC'
+        supplier TEXT DEFAULT 'LC',
+        import_id INTEGER
     )
     ''')
     cur.execute('''
@@ -42,6 +43,13 @@ def ensure_schema(db_path):
         rows_added INTEGER
     )
     ''')
+
+    # Migration: older databases lack the import provenance column
+    cur.execute("PRAGMA table_info(components)")
+    columns = [row[1] for row in cur.fetchall()]
+    if 'import_id' not in columns:
+        cur.execute("ALTER TABLE components ADD COLUMN import_id INTEGER")
+
     conn.commit()
     conn.close()
 
@@ -151,6 +159,15 @@ def import_csv(db_path, csv_path, supplier):
                 "This CSV was already imported as '{}' on {}.".format(
                     existing[0], existing[1]))
 
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        # Register the import first to get its unique import number
+        cur.execute(
+            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added) "
+            "VALUES (?, ?, ?, ?, 0)",
+            (file_name, content_hash, supplier, now))
+        import_id = cur.lastrowid
+
         with open(csv_path, newline='', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -201,24 +218,23 @@ def import_csv(db_path, csv_path, supplier):
                         'supplier': 'DK',
                     }
 
+                data['import_id'] = import_id
                 cur.execute('''
                     INSERT INTO components (
                         lcsc_part_number, manufacture_part_number, manufacturer,
                         customer_no, package, description, rohs,
-                        order_qty, min_mult_order_qty, unit_price, order_price, supplier
+                        order_qty, min_mult_order_qty, unit_price, order_price, supplier, import_id
                     ) VALUES (
                         :lcsc_part_number, :manufacture_part_number, :manufacturer,
                         :customer_no, :package, :description, :rohs,
-                        :order_qty, :min_mult_order_qty, :unit_price, :order_price, :supplier
+                        :order_qty, :min_mult_order_qty, :unit_price, :order_price, :supplier, :import_id
                     )
                 ''', data)
                 added += 1
 
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cur.execute(
-            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (file_name, content_hash, supplier, now, added))
+            "UPDATE imports SET rows_added = ?, imported_at = ? WHERE rowid = ?",
+            (added, now, import_id))
         cur.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_update', ?)",
             (now,))

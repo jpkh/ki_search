@@ -25,6 +25,11 @@ default) and the CSV file. Supported columns are the LCSC order export and
 DigiKey order export formats. After a successful import the info line updates
 with the new total and last-update time.
 
+Imported files are archived in a `cvsdone/` folder inside the active database
+folder (created automatically). Every imported row remembers which file it
+came from through an internal import number (not shown in the UI);
+re-importing the same file — even renamed — is rejected.
+
 ## Database
 
 The plugin expects a SQLite database at:
