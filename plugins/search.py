@@ -70,8 +70,8 @@ class SearchDialog(wx.Dialog):
         hbox_bottom = wx.BoxSizer(wx.HORIZONTAL)
         hbox_bottom.Add(wx.StaticText(panel, label="(c)2026 "),
                         flag=wx.ALIGN_CENTER_VERTICAL)
-        hbox_bottom.Add(wx.HyperlinkCtrl(panel, wx.ID_ANY, "jpkh/fi",
-                                         "https://github.com/jpkh"),
+        hbox_bottom.Add(wx.adv.HyperlinkCtrl(panel, wx.ID_ANY, "jpkh/fi",
+                                             "https://github.com/jpkh"),
                         flag=wx.ALIGN_CENTER_VERTICAL)
         vbox.Add(hbox_bottom, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
