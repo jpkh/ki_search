@@ -61,7 +61,12 @@ class SettingsDialog(wx.Dialog):
         vbox.Add(wx.StaticText(self, label="Database folder (components.db is created inside;\nempty = auto from USER_DOCS):"),
                  flag=wx.ALL, border=10)
         self.db_path_ctrl = wx.DirPickerCtrl(self, message="Choose the database folder")
-        self.db_path_ctrl.SetPath(options.get('db_path', ''))
+        if options.get('db_path'):
+            self.db_path_ctrl.SetPath(options.get('db_path', ''))
+        else:
+            # Empty setting: leave the picker field empty (SetPath('') would
+            # show the current directory instead).
+            self.db_path_ctrl.GetTextCtrl().SetValue('')
         vbox.Add(self.db_path_ctrl,
                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
@@ -77,7 +82,10 @@ class SettingsDialog(wx.Dialog):
         active = [k for k, cb in self.column_checks.items() if cb.GetValue()]
         if not active:
             active = [c[0] for c in COLUMNS]
+        db_path = self.db_path_ctrl.GetPath().strip()
+        if db_path:
+            db_path = os.path.normpath(db_path)
         return {
             'active_columns': active,
-            'db_path': self.db_path_ctrl.GetValue().strip(),
+            'db_path': db_path,
         }

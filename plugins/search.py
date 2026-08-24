@@ -7,6 +7,7 @@ import webbrowser
 from .config import COLUMNS, default_db_relpath, default_db_filename
 from .settings import load_options, save_options, SettingsDialog
 from .importer import get_db_stats, ensure_schema, ImportDialog
+from .log_util import log_message
 
 
 class SearchDatabasePlugin(pcbnew.ActionPlugin):
@@ -182,6 +183,8 @@ class SearchDialog(wx.Dialog):
             save_options(self.options)
             self._rebuild_columns()
             self._refresh_info()
+            log_message("Settings saved: db folder = '{}'".format(
+                self.options.get('db_path', '')))
         dlg.Destroy()
 
     # ----- Search ----------------------------------------------------------
