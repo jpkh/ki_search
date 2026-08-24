@@ -2,6 +2,11 @@ import os
 
 settingsFileName = 'ki-search-options.json'
 
+# Stamp stored on every imported component row (invisible, internal only).
+# Bump it whenever the components table schema changes in a way that
+# affects how rows are written.
+SCHEMA_VERSION = 1
+
 # (key, header, width, right-aligned?)
 COLUMNS = [
     ('lcsc_part_number',        'LCSC Pn',      120, False),

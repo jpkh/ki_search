@@ -6,6 +6,8 @@ from datetime import datetime
 
 import wx
 
+from .config import SCHEMA_VERSION
+
 
 def ensure_schema(db_path):
     """Create the components and meta tables if missing."""
@@ -25,7 +27,8 @@ def ensure_schema(db_path):
         unit_price REAL,
         order_price REAL,
         supplier TEXT DEFAULT 'LC',
-        import_id INTEGER
+        import_id INTEGER,
+        schema_version INTEGER DEFAULT 1
     )
     ''')
     cur.execute('''
@@ -40,15 +43,29 @@ def ensure_schema(db_path):
         content_hash TEXT,
         supplier TEXT,
         imported_at TEXT,
-        rows_added INTEGER
+        rows_added INTEGER,
+        currency TEXT
     )
     ''')
 
-    # Migration: older databases lack the import provenance column
+    # Migrations for older databases
     cur.execute("PRAGMA table_info(components)")
     columns = [row[1] for row in cur.fetchall()]
     if 'import_id' not in columns:
         cur.execute("ALTER TABLE components ADD COLUMN import_id INTEGER")
+    if 'schema_version' not in columns:
+        cur.execute("ALTER TABLE components ADD COLUMN schema_version INTEGER")
+        # Stamp pre-versioning rows so they are distinguishable from new imports
+        cur.execute("UPDATE components SET schema_version = 0 WHERE schema_version IS NULL")
+
+    cur.execute("PRAGMA table_info(imports)")
+    import_columns = [row[1] for row in cur.fetchall()]
+    if 'currency' not in import_columns:
+        cur.execute("ALTER TABLE imports ADD COLUMN currency TEXT")
+
+    cur.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
+        (str(SCHEMA_VERSION),))
 
     conn.commit()
     conn.close()
@@ -160,17 +177,26 @@ def import_csv(db_path, csv_path, supplier):
                     existing[0], existing[1]))
 
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        currency = 'USD'
 
         # Register the import first to get its unique import number
         cur.execute(
-            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added) "
-            "VALUES (?, ?, ?, ?, 0)",
-            (file_name, content_hash, supplier, now))
+            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added, currency) "
+            "VALUES (?, ?, ?, ?, 0, ?)",
+            (file_name, content_hash, supplier, now, currency))
         import_id = cur.lastrowid
 
         with open(csv_path, newline='', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
+                # EUR detection: a € sign in a price field -> EUR, else USD
+                if currency == 'USD':
+                    for key in ('Unit Price($)', 'Order Price($)', 'Ext.Price($)',
+                                'Unit Price', 'Extended Price'):
+                        v = row.get(key)
+                        if v is not None and '€' in str(v):
+                            currency = 'EUR'
+                            break
                 if any('subtotal' in (str(v or '').lower()) for v in row.values()):
                     skipped += 1
                     continue
@@ -219,22 +245,23 @@ def import_csv(db_path, csv_path, supplier):
                     }
 
                 data['import_id'] = import_id
+                data['schema_version'] = SCHEMA_VERSION
                 cur.execute('''
                     INSERT INTO components (
                         lcsc_part_number, manufacture_part_number, manufacturer,
                         customer_no, package, description, rohs,
-                        order_qty, min_mult_order_qty, unit_price, order_price, supplier, import_id
+                        order_qty, min_mult_order_qty, unit_price, order_price, supplier, import_id, schema_version
                     ) VALUES (
                         :lcsc_part_number, :manufacture_part_number, :manufacturer,
                         :customer_no, :package, :description, :rohs,
-                        :order_qty, :min_mult_order_qty, :unit_price, :order_price, :supplier, :import_id
+                        :order_qty, :min_mult_order_qty, :unit_price, :order_price, :supplier, :import_id, :schema_version
                     )
                 ''', data)
                 added += 1
 
         cur.execute(
-            "UPDATE imports SET rows_added = ?, imported_at = ? WHERE rowid = ?",
-            (added, now, import_id))
+            "UPDATE imports SET rows_added = ?, imported_at = ?, currency = ? WHERE rowid = ?",
+            (added, now, currency, import_id))
         cur.execute(
             "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_update', ?)",
             (now,))

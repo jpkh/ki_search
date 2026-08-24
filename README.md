@@ -28,7 +28,8 @@ with the new total and last-update time.
 Imported files are archived in a `cvsdone/` folder inside the active database
 folder (created automatically). Every imported row remembers which file it
 came from through an internal import number (not shown in the UI);
-re-importing the same file — even renamed — is rejected.
+re-importing the same file — even renamed — is rejected. Prices keep their
+currency: `€` in the price fields is treated as EUR, anything else as USD.
 
 ## Database
 
