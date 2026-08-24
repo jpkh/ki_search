@@ -1,8 +1,8 @@
 # KI-Search — Component Search for KiCad
 
 A KiCad PCB-editor plugin that searches a local SQLite components database
-directly inside pcbnew. Click an LCSC part number in the results to open its
-page on lcsc.com.
+directly inside pcbnew — "what parts do I have at hand, at what price?"
+Clicking a result row opens the supplier's product page (LCSC / DigiKey).
 
 ## Features
 
@@ -13,7 +13,8 @@ page on lcsc.com.
   and date/time of the last import.
 - Import supplier CSV files straight from the dialog (LCSC and DigiKey;
   Mouser planned). Imported files are archived in `cvsdone/` next to the DB.
-- Results in a list with the LCSC part number as a clickable link.
+- Results in a list where clicking a row opens the supplier page stored for
+  that row (LCSC product page, DigiKey search results; LCSC search fallback).
 - Settings dialog: choose which columns are visible and set a custom
   database path.
 - Database lives outside the plugin package (your documents folder).
@@ -32,16 +33,26 @@ re-importing the same file — even renamed — is rejected.
 
 ## Database
 
-The plugin expects a SQLite database at:
+The plugin uses a SQLite database at:
 
 ```
 <USER_DOCS>/KiCAD/Gen/scripts/components.db
 ```
 
-with a table `components` containing the columns:
+or inside the folder set in **Settings…** (`components.db` is created
+automatically there). The schema is created/migrated automatically and
+contains:
 
-`lcsc_part_number`, `manufacture_part_number`, `manufacturer`, `package`,
-`description`, `order_qty`, `unit_price`, `order_price`
+- `components` — one row per imported line, with an internal `import_id`
+  linking to the source file and a `url` column with the direct supplier
+  page (`tags` reserved for future flags). Searchable columns:
+  `lcsc_part_number`, `manufacture_part_number`, `manufacturer`, `package`,
+  `description`, `order_qty`, `unit_price`, `order_price`.
+- `imports` — every imported file (name, content hash, time, row count).
+- `meta` — key/value settings (`last_update`, `schema_version`).
+
+This plugin is a search helper, not an inventory system — no stock
+counting.
 
 ## Installation
 
