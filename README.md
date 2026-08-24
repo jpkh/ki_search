@@ -69,6 +69,14 @@ the datecode in the file names, and archives processed files in `cvsdone/`:
 python tools/processcvs-new.py -inDir C:\Temp\comp\cvs -outDir C:\Temp\comp
 ```
 
+It can also repair missing prices from the CSV history
+(`--dry-run` previews without changes):
+
+```sh
+python tools/processcvs-new.py -outDir C:\Temp\comp --rescan --dry-run
+python tools/processcvs-new.py -outDir C:\Temp\comp --rescan
+```
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE).

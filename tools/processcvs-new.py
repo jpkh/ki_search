@@ -174,6 +174,31 @@ def _parse_qty(val):
         return None
 
 
+UNIT_PRICE_KEYS = ('Unit Price($)', 'Unit Price(€)', 'Unit Price')
+ORDER_PRICE_KEYS = ('Order Price($)', 'Order Price(€)',
+                    'Ext.Price($)', 'Ext.Price(€)', 'Extended Price')
+
+
+def _get_unit(row):
+    for key in UNIT_PRICE_KEYS:
+        if row.get(key):
+            return _parse_float(row[key])
+    return 0.0
+
+
+def _get_order(row):
+    for key in ORDER_PRICE_KEYS:
+        if row.get(key):
+            return _parse_float(row[key])
+    return 0.0
+
+
+def _header_has_euro(csv_path):
+    with open(csv_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+        header = f.readline()
+    return '€' in header
+
+
 # ---------------------------------------------------------------- import
 
 def import_csv(db_path, csv_path, supplier):
@@ -194,6 +219,7 @@ def import_csv(db_path, csv_path, supplier):
 
     added = 0
     skipped = 0
+    no_price = 0
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
@@ -206,7 +232,7 @@ def import_csv(db_path, csv_path, supplier):
                 "already imported as '{}' on {}".format(existing[0], existing[1]))
 
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        currency = 'USD'
+        currency = 'EUR' if _header_has_euro(csv_path) else 'USD'
 
         # Register the import first to get its unique import number
         cur.execute(
@@ -227,10 +253,9 @@ def import_csv(db_path, csv_path, supplier):
                     skipped += 1
                     continue
 
-                # EUR detection: a euro sign in a price field -> EUR, else USD
+                # EUR detection: a € sign in a price field -> EUR, else USD
                 if currency == 'USD':
-                    for key in ('Unit Price($)', 'Order Price($)', 'Ext.Price($)',
-                                'Unit Price', 'Extended Price'):
+                    for key in UNIT_PRICE_KEYS + ORDER_PRICE_KEYS:
                         v = row.get(key)
                         if v is not None and '€' in str(v):
                             currency = 'EUR'
@@ -253,9 +278,8 @@ def import_csv(db_path, csv_path, supplier):
                         'rohs': (row.get('RoHS') or '').strip(),
                         'order_qty': qty,
                         'min_mult_order_qty': min_mult_raw.strip(),
-                        'unit_price': _parse_float(row.get('Unit Price($)')),
-                        'order_price': _parse_float(
-                            row.get('Order Price($)') or row.get('Ext.Price($)')),
+                        'unit_price': _get_unit(row),
+                        'order_price': _get_order(row),
                         'supplier': 'LCSC',
                     }
                 else:  # DK (DigiKey)
@@ -269,13 +293,15 @@ def import_csv(db_path, csv_path, supplier):
                         'rohs': '',
                         'order_qty': qty,
                         'min_mult_order_qty': '',
-                        'unit_price': _parse_float(row.get('Unit Price')),
-                        'order_price': _parse_float(row.get('Extended Price')),
+                        'unit_price': _get_unit(row),
+                        'order_price': _get_order(row),
                         'supplier': 'DK',
                     }
 
                 data['import_id'] = import_id
                 data['schema_version'] = SCHEMA_VERSION
+                if data['unit_price'] == 0:
+                    no_price += 1
                 cur.execute('''
                     INSERT INTO components (
                         lcsc_part_number, manufacture_part_number, manufacturer,
@@ -311,10 +337,160 @@ def import_csv(db_path, csv_path, supplier):
         n += 1
     os.rename(csv_path, target)
 
-    return added, skipped, currency
+    return added, skipped, currency, no_price
 
 
-# ---------------------------------------------------------------- main
+# ------------------------------------------------------------- rescan
+
+def _build_history_index(cvsdone):
+    """Scan cvsdone CSVs; index by full key (incl. qty), part-only key and
+    part-code-only key.
+
+    Returns (index, partial, by_code) where each maps key -> list of
+    {'unit','order','qty','file','mtime'}, newest first.
+    """
+    index = {}
+    partial = {}
+    by_code = {}
+    file_has_euro = {}
+    if not os.path.isdir(cvsdone):
+        return index, partial, by_code, file_has_euro
+    for name in os.listdir(cvsdone):
+        if not name.lower().endswith('.csv'):
+            continue
+        fpath = os.path.join(cvsdone, name)
+        try:
+            mtime = os.path.getmtime(fpath)
+        except Exception:
+            mtime = 0
+        if _header_has_euro(fpath):
+            file_has_euro[name] = True
+        try:
+            with open(fpath, newline='', encoding='utf-8-sig', errors='replace') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    lcsc = (row.get('LCSC Part Number') or row.get('DigiKey Part #') or '').strip()
+                    mfg = (row.get('Manufacture Part Number') or '').strip()
+                    package = (row.get('Package') or '').strip()
+                    desc = (row.get('Description') or '').strip()
+                    qty = _parse_qty(row.get('Quantity') or row.get('Order Qty.'))
+                    unit = _get_unit(row)
+                    order = _get_order(row)
+                    if not file_has_euro.get(name):
+                        for key in UNIT_PRICE_KEYS + ORDER_PRICE_KEYS:
+                            v = row.get(key)
+                            if v is not None and '€' in str(v):
+                                file_has_euro[name] = True
+                                break
+                    if order == 0 and unit and qty:
+                        order = unit * qty
+                    if not lcsc:
+                        continue
+                    entry = {'unit': unit, 'order': order, 'qty': qty,
+                             'file': name, 'mtime': mtime}
+                    index.setdefault((lcsc, mfg, package, desc, qty), []).append(entry)
+                    partial.setdefault((lcsc, mfg, package, desc), []).append(entry)
+                    by_code.setdefault(lcsc, []).append(entry)
+        except Exception:
+            continue
+    for d in (index, partial, by_code):
+        for entries in d.values():
+            entries.sort(key=lambda e: e['mtime'], reverse=True)
+    return index, partial, by_code, file_has_euro
+
+
+def rescan_and_repair(db_path, cvsdone, dry_run=True):
+    """Repair zero/missing unit/order prices from the CSV history.
+
+    Returns (repaired, unresolved) lists.
+    """
+    index, partial, by_code, file_has_euro = _build_history_index(cvsdone)
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute('''
+        SELECT rowid, lcsc_part_number, manufacture_part_number, package,
+               description, order_qty, unit_price, order_price
+        FROM components
+    ''')
+    rows = cur.fetchall()
+
+    repaired = []
+    unresolved = []
+    for row in rows:
+        unit = row['unit_price'] or 0
+        order = row['order_price'] or 0
+        qty = row['order_qty']
+
+        if unit > 0 and order > 0:
+            continue
+
+        lcsc = (row['lcsc_part_number'] or '').strip()
+        mfg = (row['manufacture_part_number'] or '').strip()
+        package = (row['package'] or '').strip()
+        desc = (row['description'] or '').strip()
+
+        new_unit = None
+        new_order = None
+        src = None
+
+        # 1) exact part + qty match with non-zero prices
+        for e in index.get((lcsc, mfg, package, desc, qty), []):
+            if e['unit'] > 0 and e['order'] > 0:
+                new_unit, new_order, src = e['unit'], e['order'], e['file']
+                break
+
+        # 2) fallback: same part with any qty -> scale order price by our qty
+        if new_unit is None:
+            for e in partial.get((lcsc, mfg, package, desc), []):
+                if e['unit'] > 0:
+                    new_unit = e['unit']
+                    new_order = round(e['unit'] * qty, 4) if qty else 0.0
+                    src = e['file']
+                    break
+
+        # 3) last resort: same part code only (safe for LCSC/DK codes)
+        if new_unit is None and lcsc:
+            for e in by_code.get(lcsc, []):
+                if e['unit'] > 0:
+                    new_unit = e['unit']
+                    new_order = round(e['unit'] * qty, 4) if qty else 0.0
+                    src = e['file'] + ' (by part code)'
+                    break
+
+        # 4) unit price present but order price missing -> derive it
+        if new_unit is None and unit > 0:
+            new_unit = unit
+            new_order = round(unit * qty, 4) if qty else 0.0
+            src = '(unit price kept)'
+
+        if new_unit is not None:
+            repaired.append((row['rowid'], lcsc, new_unit, new_order, src))
+            if not dry_run:
+                cur.execute(
+                    "UPDATE components SET unit_price = ?, order_price = ? WHERE rowid = ?",
+                    (new_unit, new_order, row['rowid']))
+        else:
+            unresolved.append((lcsc, desc))
+
+    if not dry_run and repaired:
+        conn.commit()
+    if not dry_run:
+        # correct per-file currency mismatches using the header/value scan
+        cur = conn.cursor()
+        for name in file_has_euro:
+            cur_ = 'EUR' if file_has_euro[name] else 'USD'
+            cur.execute(
+                "UPDATE imports SET currency = ? WHERE file_name = ? "
+                "AND (currency IS NULL OR currency != ?)",
+                (cur_, name, cur_))
+        cur.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('last_repair', ?)",
+            (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
+        conn.commit()
+    conn.close()
+    return repaired, unresolved
 
 def sort_key_for(path):
     code = datecode(os.path.basename(path))
@@ -327,24 +503,45 @@ def sort_key_for(path):
 def main():
     parser = argparse.ArgumentParser(
         description='Import supplier CSVs into the KI-Search components database')
-    parser.add_argument('-inDir', '--inDir', required=True,
+    parser.add_argument('-inDir', '--inDir',
                         help='Folder containing the supplier CSV files')
     parser.add_argument('-outDir', '--outDir', required=True,
                         help='Folder where components.db lives (cvsdone/ is created inside)')
+    parser.add_argument('--rescan', action='store_true',
+                        help='Repair zero/missing prices using the cvsdone history')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Report only; do not modify the database')
     args = parser.parse_args()
 
-    in_dir = args.inDir
     out_dir = args.outDir
-
-    if not os.path.isdir(in_dir):
-        raise SystemExit("Input folder not found: {}".format(in_dir))
-
     os.makedirs(out_dir, exist_ok=True)
     db_path = os.path.join(out_dir, DB_FILENAME)
     cvsdone = os.path.join(out_dir, 'cvsdone')
     os.makedirs(cvsdone, exist_ok=True)
 
     ensure_schema(db_path)
+
+    if args.rescan:
+        repaired, unresolved = rescan_and_repair(db_path, cvsdone, dry_run=args.dry_run)
+        mode = 'Dry run' if args.dry_run else 'Repair'
+        print('{}: {} row(s) would be repaired'.format(mode, len(repaired)))
+        for rowid, lcsc, unit, order, src in repaired[:50]:
+            print('    {} {} -> unit={} order={} ({})'.format(lcsc, rowid, unit, order, src))
+        if len(repaired) > 50:
+            print('    ...and {} more'.format(len(repaired) - 50))
+        print('Unresolved (no price found anywhere): {}'.format(len(unresolved)))
+        for lcsc, desc in unresolved[:50]:
+            print('    {} {}'.format(lcsc, desc[:60]))
+        if len(unresolved) > 50:
+            print('    ...and {} more'.format(len(unresolved) - 50))
+        return
+
+    if not args.inDir:
+        raise SystemExit('Input folder not found: -inDir is required (or use --rescan)')
+
+    in_dir = args.inDir
+    if not os.path.isdir(in_dir):
+        raise SystemExit("Input folder not found: {}".format(in_dir))
 
     files = [f for f in os.listdir(in_dir) if f.lower().endswith('.csv')]
     # Oldest first, ordered by the datecode in the file name
@@ -363,9 +560,10 @@ def main():
             print('    SKIP: unrecognized CSV format\n')
             continue
         try:
-            added, skipped, currency = import_csv(db_path, path, supplier)
-            print('    OK: supplier={} added={} skipped={} currency={} -> cvsdone/\n'.format(
-                supplier, added, skipped, currency))
+            added, skipped, currency, no_price = import_csv(db_path, path, supplier)
+            price_note = '  *** {} row(s) WITHOUT price!'.format(no_price) if no_price else ''
+            print('    OK: supplier={} added={} skipped={} currency={} -> cvsdone/{}{}'.format(
+                supplier, added, skipped, currency, price_note))
             total_added += added
         except Exception as e:
             print('    ERROR: {}\n'.format(e))

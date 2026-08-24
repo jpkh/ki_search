@@ -140,6 +140,31 @@ def _parse_qty(val):
         return None
 
 
+UNIT_PRICE_KEYS = ('Unit Price($)', 'Unit Price(€)', 'Unit Price')
+ORDER_PRICE_KEYS = ('Order Price($)', 'Order Price(€)',
+                    'Ext.Price($)', 'Ext.Price(€)', 'Extended Price')
+
+
+def _get_unit(row):
+    for key in UNIT_PRICE_KEYS:
+        if row.get(key):
+            return _parse_float(row[key])
+    return 0.0
+
+
+def _get_order(row):
+    for key in ORDER_PRICE_KEYS:
+        if row.get(key):
+            return _parse_float(row[key])
+    return 0.0
+
+
+def _header_has_euro(csv_path):
+    with open(csv_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+        header = f.readline()
+    return '€' in header
+
+
 def import_csv(db_path, csv_path, supplier):
     """Import a supplier CSV into the database.
 
@@ -163,6 +188,7 @@ def import_csv(db_path, csv_path, supplier):
 
     added = 0
     skipped = 0
+    no_price = 0
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
@@ -177,7 +203,7 @@ def import_csv(db_path, csv_path, supplier):
                     existing[0], existing[1]))
 
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        currency = 'USD'
+        currency = 'EUR' if _header_has_euro(csv_path) else 'USD'
 
         # Register the import first to get its unique import number
         cur.execute(
@@ -191,8 +217,7 @@ def import_csv(db_path, csv_path, supplier):
             for row in reader:
                 # EUR detection: a € sign in a price field -> EUR, else USD
                 if currency == 'USD':
-                    for key in ('Unit Price($)', 'Order Price($)', 'Ext.Price($)',
-                                'Unit Price', 'Extended Price'):
+                    for key in UNIT_PRICE_KEYS + ORDER_PRICE_KEYS:
                         v = row.get(key)
                         if v is not None and '€' in str(v):
                             currency = 'EUR'
@@ -223,9 +248,8 @@ def import_csv(db_path, csv_path, supplier):
                         'rohs': (row.get('RoHS') or '').strip(),
                         'order_qty': qty,
                         'min_mult_order_qty': min_mult_raw.strip(),
-                        'unit_price': _parse_float(row.get('Unit Price($)')),
-                        'order_price': _parse_float(
-                            row.get('Order Price($)') or row.get('Ext.Price($)')),
+                        'unit_price': _get_unit(row),
+                        'order_price': _get_order(row),
                         'supplier': 'LCSC',
                     }
                 else:  # DK (DigiKey)
@@ -239,13 +263,15 @@ def import_csv(db_path, csv_path, supplier):
                         'rohs': '',
                         'order_qty': qty,
                         'min_mult_order_qty': '',
-                        'unit_price': _parse_float(row.get('Unit Price')),
-                        'order_price': _parse_float(row.get('Extended Price')),
+                        'unit_price': _get_unit(row),
+                        'order_price': _get_order(row),
                         'supplier': 'DK',
                     }
 
                 data['import_id'] = import_id
                 data['schema_version'] = SCHEMA_VERSION
+                if data['unit_price'] == 0:
+                    no_price += 1
                 cur.execute('''
                     INSERT INTO components (
                         lcsc_part_number, manufacture_part_number, manufacturer,
@@ -331,9 +357,13 @@ class ImportDialog(wx.Dialog):
 
         supplier = self.SUPPLIERS[self.supplier_radio.GetSelection()][1]
         try:
-            added, skipped = import_csv(self.db_path, csv_path, supplier)
+            added, skipped, currency, no_price = import_csv(self.db_path, csv_path, supplier)
+            price_warning = (
+                "\n*** {} row(s) without price — see tools/processcvs-new.py --rescan ***".format(no_price)
+                if no_price else '')
             wx.MessageBox(
-                "Import finished.\nRows added: {}\nRows skipped: {}".format(added, skipped),
+                "Import finished.\nRows added: {}\nRows skipped: {}\nCurrency: {}{}".format(
+                    added, skipped, currency, price_warning),
                 "Import", wx.OK | wx.ICON_INFORMATION)
             self.EndModal(wx.ID_OK)
         except Exception as e:
