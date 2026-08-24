@@ -13,6 +13,7 @@ def get_settings_file_path():
 DEFAULT_OPTIONS = {
     'active_columns': [c[0] for c in COLUMNS],
     'db_path': '',
+    'show_source_tooltip': True,
 }
 
 
@@ -31,6 +32,7 @@ def load_options():
     active = [k for k in options.get('active_columns', []) if k in valid]
     options['active_columns'] = active if active else valid
     options['db_path'] = (options.get('db_path') or '').strip()
+    options['show_source_tooltip'] = bool(options.get('show_source_tooltip', True))
     return options
 
 
@@ -70,6 +72,10 @@ class SettingsDialog(wx.Dialog):
         vbox.Add(self.db_path_ctrl,
                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
+        self.show_tooltip_check = wx.CheckBox(self, label='Show source CSV file name in row tooltips')
+        self.show_tooltip_check.SetValue(bool(options.get('show_source_tooltip', True)))
+        vbox.Add(self.show_tooltip_check, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
         btns = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         vbox.Add(btns, flag=wx.ALIGN_RIGHT | wx.ALL, border=10)
 
@@ -88,4 +94,5 @@ class SettingsDialog(wx.Dialog):
         return {
             'active_columns': active,
             'db_path': db_path,
+            'show_source_tooltip': self.show_tooltip_check.GetValue(),
         }

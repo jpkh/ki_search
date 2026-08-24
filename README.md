@@ -14,6 +14,8 @@ page on lcsc.com.
 - Import supplier CSV files straight from the dialog (LCSC and DigiKey;
   Mouser planned). Imported files are archived in `cvsdone/` next to the DB.
 - Results in a list with the LCSC part number as a clickable link.
+- Optional row tooltip showing which CSV file a component came from
+  (toggled in Settings).
 - Settings dialog: choose which columns are visible and set a custom
   database path.
 - Database lives outside the plugin package (your documents folder).

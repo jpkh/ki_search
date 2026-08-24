@@ -69,6 +69,8 @@ class SearchDialog(wx.Dialog):
         self.import_btn.Bind(wx.EVT_BUTTON, self.on_import)
         self.settings_btn.Bind(wx.EVT_BUTTON, self.on_settings)
         self.result_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.on_item_click)
+        self.result_list.Bind(wx.EVT_MOTION, self.on_result_motion)
+        self._row_meta = []  # (import_id, source file) aligned with list rows
 
         panel.SetSizer(vbox)
         # Defer the info refresh so the main dialog shows before any
@@ -143,6 +145,7 @@ class SearchDialog(wx.Dialog):
         """Perform a database search based on user input."""
         search_term = self.search_ctrl.GetValue().strip()
         self.result_list.DeleteAllItems()
+        self._row_meta = []
 
         if not search_term:
             wx.MessageBox("Please enter a search term", "Warning", wx.OK | wx.ICON_WARNING)
@@ -160,7 +163,7 @@ class SearchDialog(wx.Dialog):
         link_font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
                             wx.FONTWEIGHT_NORMAL, underline=True)
         for row in results:
-            values = dict(zip(self.DB_COLUMN_ORDER, row))
+            values = dict(zip(self.DB_COLUMN_ORDER + ['import_id', 'source_file'], row))
             first_value = str(values.get(self.columns[0][0], ''))
             index = self.result_list.InsertItem(self.result_list.GetItemCount(), first_value)
             for col, (key, _header, _width, _right) in enumerate(self.columns):
@@ -169,6 +172,27 @@ class SearchDialog(wx.Dialog):
                 # Style the LCSC Pn column as a blue, underlined link
                 self.result_list.SetItemFont(index, link_font)
                 self.result_list.SetItemTextColour(index, wx.Colour(0, 0, 255))
+            self._row_meta.append((values.get('import_id'), values.get('source_file')))
+
+    def on_result_motion(self, event):
+        """Show the source CSV file of the hovered row as a tooltip."""
+        if not self.options.get('show_source_tooltip', True):
+            if self.result_list.GetToolTip():
+                self.result_list.SetToolTip(None)
+            event.Skip()
+            return
+        item, _flags = self.result_list.HitTest(event.GetPosition())
+        if 0 <= item < len(self._row_meta):
+            source = self._row_meta[item][1] or 'unknown'
+            tip = self.result_list.GetToolTip()
+            if tip is None:
+                tip = wx.ToolTip('')
+                self.result_list.SetToolTip(tip)
+            if tip.GetTip() != source:
+                tip.SetTip('Source: {}'.format(source))
+        else:
+            self.result_list.SetToolTip(None)
+        event.Skip()
 
     def on_import(self, event):
         dlg = ImportDialog(self, self.get_database_path())
@@ -201,17 +225,19 @@ class SearchDialog(wx.Dialog):
             cursor = conn.cursor()
 
             query = '''
-            SELECT lcsc_part_number, manufacture_part_number, manufacturer, package, description,
-                   order_qty, unit_price, order_price
-            FROM components
-            WHERE lcsc_part_number LIKE ?
-            OR manufacture_part_number LIKE ?
-            OR manufacturer LIKE ?
-            OR package LIKE ?
-            OR description LIKE ?
-            OR CAST(order_qty AS TEXT) LIKE ?
-            OR CAST(unit_price AS TEXT) LIKE ?
-            OR CAST(order_price AS TEXT) LIKE ?
+            SELECT c.lcsc_part_number, c.manufacture_part_number, c.manufacturer, c.package,
+                   c.description, c.order_qty, c.unit_price, c.order_price,
+                   c.import_id, i.file_name
+            FROM components c
+            LEFT JOIN imports i ON i.rowid = c.import_id
+            WHERE c.lcsc_part_number LIKE ?
+            OR c.manufacture_part_number LIKE ?
+            OR c.manufacturer LIKE ?
+            OR c.package LIKE ?
+            OR c.description LIKE ?
+            OR CAST(c.order_qty AS TEXT) LIKE ?
+            OR CAST(c.unit_price AS TEXT) LIKE ?
+            OR CAST(c.order_price AS TEXT) LIKE ?
             '''
             search_value = "%{}%".format(search_term)
             cursor.execute(query, [search_value] * 8)
