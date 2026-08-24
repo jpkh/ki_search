@@ -60,22 +60,19 @@ class SearchDialog(wx.Dialog):
         self._rebuild_columns()
         vbox.Add(self.result_list, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
 
-        # Row 3: info line
+        # Row 3: info line (left) + version/copyright (right-aligned)
         self.info_label = wx.StaticText(panel, label="")
-        vbox.Add(self.info_label,
-                 flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
-
-        # Row 4: version + copyright bottom-right (clickable link)
-        hbox_bottom = wx.BoxSizer(wx.HORIZONTAL)
-        hbox_bottom.AddStretchSpacer(1)
-        hbox_bottom.Add(wx.StaticText(panel, label="Ki-Search V{}".format(plugin_version)),
-                        flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=10)
-        hbox_bottom.Add(wx.StaticText(panel, label="(c)2026 "),
-                        flag=wx.ALIGN_CENTER_VERTICAL)
-        hbox_bottom.Add(wx.adv.HyperlinkCtrl(panel, wx.ID_ANY, "jpkh/fi",
-                                             "https://github.com/jpkh"),
-                        flag=wx.ALIGN_CENTER_VERTICAL)
-        vbox.Add(hbox_bottom, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        hbox_info = wx.BoxSizer(wx.HORIZONTAL)
+        hbox_info.Add(self.info_label, flag=wx.ALIGN_CENTER_VERTICAL)
+        hbox_info.AddStretchSpacer(1)
+        hbox_info.Add(wx.StaticText(panel, label="Ki-Search V{}".format(plugin_version)),
+                      flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=10)
+        hbox_info.Add(wx.StaticText(panel, label="(c)2026 "),
+                      flag=wx.ALIGN_CENTER_VERTICAL)
+        hbox_info.Add(wx.adv.HyperlinkCtrl(panel, wx.ID_ANY, "jpkh/fi",
+                                           "https://github.com/jpkh"),
+                      flag=wx.ALIGN_CENTER_VERTICAL)
+        vbox.Add(hbox_info, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
         self.search_btn.Bind(wx.EVT_BUTTON, self.on_search)
         self.search_ctrl.Bind(wx.EVT_TEXT_ENTER, self.on_search)
