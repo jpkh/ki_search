@@ -29,12 +29,10 @@ class SearchDatabasePlugin(pcbnew.ActionPlugin):
 class SearchDialog(wx.Dialog):
     # Fixed SELECT order; displayed columns are a subset chosen in settings
     DB_COLUMN_ORDER = [c[0] for c in COLUMNS]
-    SELECT_COLUMNS = DB_COLUMN_ORDER + ['url']
 
     def __init__(self, parent):
         super().__init__(parent, title="Search Components", size=(1200, 420))
         self.options = load_options()
-        self._last_results = []
 
         panel = wx.Panel(self)
         vbox = wx.BoxSizer(wx.VERTICAL)
@@ -132,20 +130,14 @@ class SearchDialog(wx.Dialog):
     # ----- Events ----------------------------------------------------------
 
     def on_item_click(self, event):
-        """Open the supplier page for the clicked row."""
+        """Open the LCSC search page when clicking an LCSC part number."""
+        if self.lcsc_col is None:
+            return
         item_index = event.GetIndex()
-        if not (0 <= item_index < len(self._last_results)):
-            return
-        row = self._last_results[item_index]
-        url = (row.get('url') or '').strip()
-        if url:
+        lcsc_part_number = self.result_list.GetItemText(item_index, self.lcsc_col)
+        if lcsc_part_number:
+            url = "https://www.lcsc.com/search?q={}".format(lcsc_part_number)
             webbrowser.open(url)
-            return
-        # Fallback: LCSC search page for the part number
-        if self.lcsc_col is not None:
-            lcsc_part_number = row.get('lcsc_part_number') or ''
-            if lcsc_part_number:
-                webbrowser.open("https://www.lcsc.com/search?q={}".format(lcsc_part_number))
 
     def on_search(self, event):
         """Perform a database search based on user input."""
@@ -167,10 +159,8 @@ class SearchDialog(wx.Dialog):
 
         link_font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
                             wx.FONTWEIGHT_NORMAL, underline=True)
-        self._last_results = []
         for row in results:
-            values = dict(zip(self.SELECT_COLUMNS, row))
-            self._last_results.append(values)
+            values = dict(zip(self.DB_COLUMN_ORDER, row))
             first_value = str(values.get(self.columns[0][0], ''))
             index = self.result_list.InsertItem(self.result_list.GetItemCount(), first_value)
             for col, (key, _header, _width, _right) in enumerate(self.columns):
@@ -212,7 +202,7 @@ class SearchDialog(wx.Dialog):
 
             query = '''
             SELECT lcsc_part_number, manufacture_part_number, manufacturer, package, description,
-                   order_qty, unit_price, order_price, url
+                   order_qty, unit_price, order_price
             FROM components
             WHERE lcsc_part_number LIKE ?
             OR manufacture_part_number LIKE ?

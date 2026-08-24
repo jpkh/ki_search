@@ -8,14 +8,11 @@ import wx
 
 
 def ensure_schema(db_path):
-    """Create or migrate the database schema (idempotent)."""
+    """Create the components and meta tables if missing."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-
-    # --- components: the import log, one row per imported line ---
     cur.execute('''
     CREATE TABLE IF NOT EXISTS components (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
         lcsc_part_number TEXT,
         manufacture_part_number TEXT,
         manufacturer TEXT,
@@ -27,22 +24,16 @@ def ensure_schema(db_path):
         min_mult_order_qty TEXT,
         unit_price REAL,
         order_price REAL,
-        supplier TEXT DEFAULT 'LCSC',
-        import_id INTEGER,
-        url TEXT,
-        tags TEXT
+        supplier TEXT DEFAULT 'LC',
+        import_id INTEGER
     )
     ''')
-
-    # --- meta: key/value settings ---
     cur.execute('''
     CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY,
         value TEXT
     )
     ''')
-
-    # --- imports: one row per imported file; rowid = import number ---
     cur.execute('''
     CREATE TABLE IF NOT EXISTS imports (
         file_name TEXT PRIMARY KEY,
@@ -53,21 +44,12 @@ def ensure_schema(db_path):
     )
     ''')
 
-    # --- migrations for older databases ---
+    # Migration: older databases lack the import provenance column
     cur.execute("PRAGMA table_info(components)")
     columns = [row[1] for row in cur.fetchall()]
-    for name, decl in [('import_id', 'INTEGER'),
-                       ('url', 'TEXT'),
-                       ('tags', 'TEXT')]:
-        if name not in columns:
-            cur.execute("ALTER TABLE components ADD COLUMN {} {}".format(name, decl))
+    if 'import_id' not in columns:
+        cur.execute("ALTER TABLE components ADD COLUMN import_id INTEGER")
 
-    # --- indexes ---
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_components_lcsc ON components (lcsc_part_number)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_components_mfg ON components (manufacture_part_number)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_components_import ON components (import_id)")
-
-    cur.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')")
     conn.commit()
     conn.close()
 
@@ -199,7 +181,6 @@ def import_csv(db_path, csv_path, supplier):
                     continue
 
                 if supplier == 'LCSC':
-                    lcsc_pn = (row.get('LCSC Part Number') or '').strip()
                     min_mult_raw = (
                         row.get('Min/Mult Order Qty.') or
                         row.get('Min\\Mult Order Qty.') or
@@ -207,7 +188,7 @@ def import_csv(db_path, csv_path, supplier):
                         row.get('Min/Mult Qty') or
                         row.get('Min Mult Qty') or '')
                     data = {
-                        'lcsc_part_number': lcsc_pn,
+                        'lcsc_part_number': (row.get('LCSC Part Number') or '').strip(),
                         'manufacture_part_number': (row.get('Manufacture Part Number') or '').strip(),
                         'manufacturer': (row.get('Manufacturer') or '').strip(),
                         'customer_no': (row.get('Customer NO.') or '').strip(),
@@ -220,13 +201,10 @@ def import_csv(db_path, csv_path, supplier):
                         'order_price': _parse_float(
                             row.get('Order Price($)') or row.get('Ext.Price($)')),
                         'supplier': 'LCSC',
-                        'url': ('https://www.lcsc.com/product-detail/{}.html'.format(lcsc_pn)
-                                if lcsc_pn else ''),
                     }
                 else:  # DK (DigiKey)
-                    dk_pn = (row.get('DigiKey Part #') or '').strip()
                     data = {
-                        'lcsc_part_number': dk_pn,
+                        'lcsc_part_number': (row.get('DigiKey Part #') or '').strip(),
                         'manufacture_part_number': (row.get('Manufacturer Part Number') or '').strip(),
                         'manufacturer': (row.get('Manufacturer') or '').strip(),
                         'customer_no': '',
@@ -238,8 +216,6 @@ def import_csv(db_path, csv_path, supplier):
                         'unit_price': _parse_float(row.get('Unit Price')),
                         'order_price': _parse_float(row.get('Extended Price')),
                         'supplier': 'DK',
-                        'url': ('https://www.digikey.com/en/products/result?keywords={}'.format(dk_pn)
-                                if dk_pn else ''),
                     }
 
                 data['import_id'] = import_id
@@ -247,13 +223,11 @@ def import_csv(db_path, csv_path, supplier):
                     INSERT INTO components (
                         lcsc_part_number, manufacture_part_number, manufacturer,
                         customer_no, package, description, rohs,
-                        order_qty, min_mult_order_qty, unit_price, order_price,
-                        supplier, url, import_id
+                        order_qty, min_mult_order_qty, unit_price, order_price, supplier, import_id
                     ) VALUES (
                         :lcsc_part_number, :manufacture_part_number, :manufacturer,
                         :customer_no, :package, :description, :rohs,
-                        :order_qty, :min_mult_order_qty, :unit_price, :order_price,
-                        :supplier, :url, :import_id
+                        :order_qty, :min_mult_order_qty, :unit_price, :order_price, :supplier, :import_id
                     )
                 ''', data)
                 added += 1
