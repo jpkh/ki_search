@@ -31,13 +31,23 @@ class SearchDialog(wx.Dialog):
     DB_COLUMN_ORDER = [c[0] for c in COLUMNS]
 
     def __init__(self, parent):
-        title = "Search Components  Ki-Search V{}{}(c)2026 jpkh/fi".format(
-            plugin_version, ' ' * 10)
+        title = "Search Components  Ki-Search V{}".format(plugin_version)
         super().__init__(parent, title=title, size=(1200, 420))
         self.options = load_options()
 
         panel = wx.Panel(self)
         vbox = wx.BoxSizer(wx.VERTICAL)
+
+        # Row 0: version + copyright with clickable link
+        hbox_top = wx.BoxSizer(wx.HORIZONTAL)
+        hbox_top.Add(wx.StaticText(panel, label="Ki-Search V{}".format(plugin_version)),
+                     flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=10)
+        hbox_top.Add(wx.StaticText(panel, label="(c)2026 "),
+                     flag=wx.ALIGN_CENTER_VERTICAL)
+        hbox_top.Add(wx.adv.HyperlinkCtrl(panel, wx.ID_ANY, "jpkh/fi",
+                                          "https://github.com/jpkh"),
+                     flag=wx.ALIGN_CENTER_VERTICAL)
+        vbox.Add(hbox_top, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
 
         # Row 1: search + actions
         hbox1 = wx.BoxSizer(wx.HORIZONTAL)
@@ -65,15 +75,6 @@ class SearchDialog(wx.Dialog):
         self.info_label = wx.StaticText(panel, label="")
         vbox.Add(self.info_label,
                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
-
-        # Row 4: copyright with clickable link (window titles can't be links)
-        hbox_bottom = wx.BoxSizer(wx.HORIZONTAL)
-        hbox_bottom.Add(wx.StaticText(panel, label="(c)2026 "),
-                        flag=wx.ALIGN_CENTER_VERTICAL)
-        hbox_bottom.Add(wx.adv.HyperlinkCtrl(panel, wx.ID_ANY, "jpkh/fi",
-                                             "https://github.com/jpkh"),
-                        flag=wx.ALIGN_CENTER_VERTICAL)
-        vbox.Add(hbox_bottom, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
         self.search_btn.Bind(wx.EVT_BUTTON, self.on_search)
         self.search_ctrl.Bind(wx.EVT_TEXT_ENTER, self.on_search)
