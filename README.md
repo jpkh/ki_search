@@ -57,6 +57,16 @@ search term and press **Enter** (or click **Search**). Double-click an LCSC
 part number to open it on lcsc.com. **Settings…** controls the visible columns
 and database path.
 
+## Tools
+
+`tools/processcvs-new.py` bulk-imports supplier CSV files into the database
+from the command line (no KiCad needed). It imports oldest first, ordered by
+the datecode in the file names, and archives processed files in `cvsdone/`:
+
+```sh
+python tools/processcvs-new.py -inDir C:\Temp\comp\cvs -outDir C:\Temp\comp
+```
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE).
