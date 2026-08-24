@@ -2,6 +2,9 @@ import os
 
 settingsFileName = 'ki-search-options.json'
 
+# Shown in the dialog title; bump together with metadata.json
+plugin_version = '0.1.0'
+
 # Stamp stored on every imported component row (invisible, internal only).
 # Bump it whenever the components table schema changes in a way that
 # affects how rows are written.
@@ -9,7 +12,7 @@ SCHEMA_VERSION = 1
 
 # (key, header, width, right-aligned?)
 COLUMNS = [
-    ('lcsc_part_number',        'LCSC Pn',      120, False),
+    ('lcsc_part_number',        'Supplier Pn',  120, False),
     ('manufacture_part_number', 'Mfg Part Nr',  150, False),
     ('manufacturer',            'Manufacturer', 120, False),
     ('package',                 'Package',      100, False),

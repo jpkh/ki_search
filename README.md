@@ -13,7 +13,7 @@ page on lcsc.com.
   and date/time of the last import.
 - Import supplier CSV files straight from the dialog (LCSC and DigiKey;
   Mouser planned). Imported files are archived in `cvsdone/` next to the DB.
-- Results in a list with the LCSC part number as a clickable link.
+- Results in a list with the supplier part number as a clickable link.
 - Optional row tooltip showing which CSV file a component came from
   (toggled in Settings).
 - Settings dialog: choose which columns are visible and set a custom

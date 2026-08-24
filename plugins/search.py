@@ -4,7 +4,7 @@ import wx
 import pcbnew
 import webbrowser
 
-from .config import COLUMNS, default_db_relpath, default_db_filename
+from .config import COLUMNS, default_db_relpath, default_db_filename, plugin_version
 from .settings import load_options, save_options, SettingsDialog
 from .importer import get_db_stats, ensure_schema, ImportDialog
 from .log_util import log_message
@@ -31,7 +31,9 @@ class SearchDialog(wx.Dialog):
     DB_COLUMN_ORDER = [c[0] for c in COLUMNS]
 
     def __init__(self, parent):
-        super().__init__(parent, title="Search Components", size=(1200, 420))
+        title = "Search Components  Ki-Search V{}{}(c)2026 jpkh/fi".format(
+            plugin_version, ' ' * 10)
+        super().__init__(parent, title=title, size=(1200, 420))
         self.options = load_options()
 
         panel = wx.Panel(self)
@@ -63,6 +65,15 @@ class SearchDialog(wx.Dialog):
         self.info_label = wx.StaticText(panel, label="")
         vbox.Add(self.info_label,
                  flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
+        # Row 4: copyright with clickable link (window titles can't be links)
+        hbox_bottom = wx.BoxSizer(wx.HORIZONTAL)
+        hbox_bottom.Add(wx.StaticText(panel, label="(c)2026 "),
+                        flag=wx.ALIGN_CENTER_VERTICAL)
+        hbox_bottom.Add(wx.HyperlinkCtrl(panel, wx.ID_ANY, "jpkh/fi",
+                                         "https://github.com/jpkh"),
+                        flag=wx.ALIGN_CENTER_VERTICAL)
+        vbox.Add(hbox_bottom, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
         self.search_btn.Bind(wx.EVT_BUTTON, self.on_search)
         self.search_ctrl.Bind(wx.EVT_TEXT_ENTER, self.on_search)
