@@ -182,8 +182,10 @@ def _header_has_euro(csv_path):
 def import_csv(db_path, csv_path, supplier):
     """Import a supplier CSV into the database.
 
-    Returns (added, skipped). Moves the processed file into cvsdone/ next to
-    the database. Raises on error (message shown by the caller).
+    Returns a dict: file_name, rows_read, added, skipped, skipped_subtotal,
+    skipped_no_qty, no_price, currency. Moves the processed file into
+    cvsdone/ next to the database. Raises on error (message shown by the
+    caller).
     """
     if supplier not in ('LCSC', 'DK'):
         raise ValueError("{} import is not implemented yet.".format(supplier))
@@ -202,7 +204,10 @@ def import_csv(db_path, csv_path, supplier):
 
     added = 0
     skipped = 0
+    skipped_subtotal = 0
+    skipped_no_qty = 0
     no_price = 0
+    rows_read = 0
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
@@ -229,6 +234,7 @@ def import_csv(db_path, csv_path, supplier):
         with open(csv_path, newline='', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
+                rows_read += 1
                 # EUR detection: a € sign in a price field -> EUR, else USD
                 if currency == 'USD':
                     for key in UNIT_PRICE_KEYS + ORDER_PRICE_KEYS:
@@ -238,11 +244,14 @@ def import_csv(db_path, csv_path, supplier):
                             break
                 if any('subtotal' in (str(v or '').lower()) for v in row.values()):
                     skipped += 1
+                    skipped_subtotal += 1
                     continue
 
-                qty = _parse_qty(row.get('Quantity') or row.get('Order Qty.'))
+                qty = _parse_qty(row.get('Quantity') or row.get('Order Qty.')
+                                 or row.get('Qty') or row.get('Qty.'))
                 if qty is None or qty == 0:
                     skipped += 1
+                    skipped_no_qty += 1
                     continue
 
                 if supplier == 'LCSC':
@@ -322,7 +331,16 @@ def import_csv(db_path, csv_path, supplier):
         n += 1
     os.rename(csv_path, target)
 
-    return added, skipped
+    return {
+        'file_name': file_name,
+        'rows_read': rows_read,
+        'added': added,
+        'skipped': skipped,
+        'skipped_subtotal': skipped_subtotal,
+        'skipped_no_qty': skipped_no_qty,
+        'no_price': no_price,
+        'currency': currency,
+    }
 
 
 class ImportDialog(wx.Dialog):
@@ -358,10 +376,13 @@ class ImportDialog(wx.Dialog):
         self.SetMinSize(self.GetSize())
         self.Centre(wx.BOTH)
 
-        # Make OK run the import instead of just closing the dialog
+        # Run the import on OK, however the button is reached
         ok_btn = self.FindWindowById(wx.ID_OK)
         if ok_btn:
             ok_btn.Bind(wx.EVT_BUTTON, self.on_import)
+        self.Bind(wx.EVT_BUTTON, self.on_import, id=wx.ID_OK)
+        self.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CANCEL),
+                  id=wx.ID_CANCEL)
 
     def on_import(self, event):
         csv_path = self.file_picker.GetPath()
@@ -371,14 +392,28 @@ class ImportDialog(wx.Dialog):
 
         supplier = self.SUPPLIERS[self.supplier_radio.GetSelection()][1]
         try:
-            added, skipped, currency, no_price = import_csv(self.db_path, csv_path, supplier)
-            price_warning = (
-                "\n*** {} row(s) without price — see tools/processcvs-new.py --rescan ***".format(no_price)
-                if no_price else '')
-            wx.MessageBox(
-                "Import finished.\nRows added: {}\nRows skipped: {}\nCurrency: {}{}".format(
-                    added, skipped, currency, price_warning),
-                "Import", wx.OK | wx.ICON_INFORMATION)
-            self.EndModal(wx.ID_OK)
+            res = import_csv(self.db_path, csv_path, supplier)
         except Exception as e:
             wx.MessageBox("Import failed: {}".format(e), "Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        lines = [
+            "Import finished.",
+            "",
+            "File: {}".format(res['file_name']),
+            "Lines processed: {}".format(res['rows_read']),
+            "Rows added: {}".format(res['added']),
+            "Rows skipped: {}".format(res['skipped']),
+            "Currency: {}".format(res['currency']),
+        ]
+        warnings = []
+        if res['skipped_subtotal']:
+            warnings.append("- {} subtotal row(s) skipped".format(res['skipped_subtotal']))
+        if res['skipped_no_qty']:
+            warnings.append("- {} row(s) skipped (no valid quantity)".format(res['skipped_no_qty']))
+        if res['no_price']:
+            warnings.append("- {} row(s) without price".format(res['no_price']))
+        if warnings:
+            lines += ["", "Warnings:"] + warnings
+        wx.MessageBox("\n".join(lines), "Import", wx.OK | wx.ICON_INFORMATION)
+        self.EndModal(wx.ID_OK)
