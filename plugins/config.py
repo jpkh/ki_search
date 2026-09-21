@@ -17,7 +17,7 @@ import os
 settingsFileName = 'ki-search-options.json'
 
 # Shown in the dialog title; bump together with metadata.json
-plugin_version = '1.1.3'
+plugin_version = '1.1.4'
 
 # Stamp stored on every imported component row (invisible, internal only).
 # Bump it whenever the components table schema changes in a way that

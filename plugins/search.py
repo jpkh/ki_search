@@ -156,14 +156,21 @@ class SearchDialog(wx.Dialog):
     # ----- Events ----------------------------------------------------------
 
     def on_item_click(self, event):
-        """Open the LCSC search page when clicking an LCSC part number."""
+        """Open the supplier search page (LCSC or DigiKey) for the part."""
         if self.lcsc_col is None:
             return
         item_index = event.GetIndex()
-        lcsc_part_number = self.result_list.GetItemText(item_index, self.lcsc_col)
-        if lcsc_part_number:
-            url = "https://www.lcsc.com/search?q={}".format(lcsc_part_number)
-            webbrowser.open(url)
+        part_number = self.result_list.GetItemText(item_index, self.lcsc_col)
+        if not part_number:
+            return
+        supplier = 'LCSC'
+        if 0 <= item_index < len(self._row_meta):
+            supplier = self._row_meta[item_index][2] or 'LCSC'
+        if supplier == 'DK':
+            url = "https://www.digikey.com/en/products/result?keywords={}".format(part_number)
+        else:
+            url = "https://www.lcsc.com/search?q={}".format(part_number)
+        webbrowser.open(url)
 
     def on_search(self, event):
         """Perform a database search based on user input."""
@@ -187,7 +194,7 @@ class SearchDialog(wx.Dialog):
         link_font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
                             wx.FONTWEIGHT_NORMAL, underline=True)
         for row in results:
-            values = dict(zip(self.DB_COLUMN_ORDER + ['import_id', 'source_file'], row))
+            values = dict(zip(self.DB_COLUMN_ORDER + ['import_id', 'source_file', 'supplier'], row))
             first_value = str(values.get(self.columns[0][0], ''))
             index = self.result_list.InsertItem(self.result_list.GetItemCount(), first_value)
             for col, (key, _header, _width, _right) in enumerate(self.columns):
@@ -196,7 +203,9 @@ class SearchDialog(wx.Dialog):
                 # Style the LCSC Pn column as a blue, underlined link
                 self.result_list.SetItemFont(index, link_font)
                 self.result_list.SetItemTextColour(index, wx.Colour(0, 0, 255))
-            self._row_meta.append((values.get('import_id'), values.get('source_file')))
+            self._row_meta.append((values.get('import_id'),
+                                   values.get('source_file'),
+                                   values.get('supplier')))
 
     def on_result_motion(self, event):
         """Show the source CSV file of the hovered row as a tooltip."""
@@ -251,7 +260,7 @@ class SearchDialog(wx.Dialog):
             query = '''
             SELECT c.lcsc_part_number, c.manufacture_part_number, c.manufacturer, c.package,
                    c.description, c.order_qty, c.unit_price, c.order_price,
-                   c.import_id, i.file_name
+                   c.import_id, i.file_name, i.supplier
             FROM components c
             LEFT JOIN imports i ON i.rowid = c.import_id
             WHERE c.lcsc_part_number LIKE ?
