@@ -74,7 +74,7 @@ class SettingsDialog(wx.Dialog):
             self.column_checks[key] = cb
             vbox.Add(cb, flag=wx.LEFT | wx.RIGHT, border=20)
 
-        vbox.Add(wx.StaticText(self, label="Database folder (components.db is created inside;\nempty = auto from USER_DOCS):"),
+        vbox.Add(wx.StaticText(self, label="Database folder (components.db is created inside;\nempty = Documents/KiCad/ki-search):"),
                  flag=wx.ALL, border=10)
         self.db_path_ctrl = wx.DirPickerCtrl(self, message="Choose the database folder")
         if options.get('db_path'):

@@ -17,7 +17,7 @@ import os
 settingsFileName = 'ki-search-options.json'
 
 # Shown in the dialog title; bump together with metadata.json
-plugin_version = '1.1.0'
+plugin_version = '1.1.1'
 
 # Stamp stored on every imported component row (invisible, internal only).
 # Bump it whenever the components table schema changes in a way that
@@ -38,5 +38,8 @@ COLUMNS = [
 
 default_db_filename = 'components.db'
 
-# Default database location relative to USER_DOCS
-default_db_relpath = os.path.join('KiCAD', 'Gen', 'scripts', default_db_filename)
+# Default database location relative to USER_DOCS (Documents).
+# Version-independent on purpose: one database shared by every KiCad
+# version the plugin runs on (8/9/10). The folder is created on demand
+# and is never touched by PCM.
+default_db_relpath = os.path.join('KiCad', 'ki-search', default_db_filename)

@@ -25,6 +25,7 @@ from .config import SCHEMA_VERSION
 
 def ensure_schema(db_path):
     """Create the components and meta tables if missing."""
+    os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute('''
