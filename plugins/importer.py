@@ -343,12 +343,34 @@ def import_csv(db_path, csv_path, supplier):
     }
 
 
+MAX_IMPORT_FILES = 5
+
+
+class ImportResultsDialog(wx.Dialog):
+    """Scrollable summary of a multi-file import run."""
+
+    def __init__(self, parent, lines):
+        super().__init__(parent, title="Import Results", size=(560, 420))
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        self.text = wx.TextCtrl(self,
+                                style=wx.TE_MULTILINE | wx.TE_READONLY | wx.HSCROLL)
+        self.text.SetValue("\n".join(lines))
+        vbox.Add(self.text, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
+        close_btn = wx.Button(self, label="Close")
+        vbox.Add(close_btn, flag=wx.ALIGN_RIGHT | wx.ALL, border=10)
+        self.SetSizer(vbox)
+        close_btn.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_OK))
+        self.Bind(wx.EVT_CLOSE, lambda e: self.EndModal(wx.ID_CANCEL))
+        self.Centre(wx.BOTH)
+
+
 class ImportDialog(wx.Dialog):
     SUPPLIERS = [('LCSC', 'LCSC'), ('DigiKey', 'DK'), ('Mouser', 'M')]
 
     def __init__(self, parent, db_path):
-        super().__init__(parent, title="Import Components CSV", size=(520, 300))
+        super().__init__(parent, title="Import Components CSV", size=(520, 400))
         self.db_path = db_path
+        self.files = []
 
         vbox = wx.BoxSizer(wx.VERTICAL)
 
@@ -360,13 +382,21 @@ class ImportDialog(wx.Dialog):
         self.supplier_radio.SetSelection(0)  # LCSC is the default
         vbox.Add(self.supplier_radio, flag=wx.LEFT | wx.RIGHT, border=10)
 
-        vbox.Add(wx.StaticText(self, label="CSV file:"),
-                 flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
-        self.file_picker = wx.FilePickerCtrl(self, wildcard="CSV files (*.csv)|*.csv")
-        vbox.Add(self.file_picker, flag=wx.EXPAND | wx.ALL, border=10)
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add(wx.StaticText(self, label="CSV files (max {}):".format(MAX_IMPORT_FILES)),
+                 flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
+        self.browse_btn = wx.Button(self, label="Browse…")
+        hbox.Add(self.browse_btn,
+                 flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
+        self.count_label = wx.StaticText(self, label="0 selected")
+        hbox.Add(self.count_label, flag=wx.ALIGN_CENTER_VERTICAL)
+        vbox.Add(hbox, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, border=10)
+
+        self.file_list = wx.ListBox(self, size=(-1, 100))
+        vbox.Add(self.file_list, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=10)
 
         self.status = wx.StaticText(self, label="Target DB: {}".format(db_path))
-        vbox.Add(self.status, flag=wx.LEFT | wx.RIGHT, border=10)
+        vbox.Add(self.status, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
 
         btns = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         vbox.Add(btns, flag=wx.ALIGN_RIGHT | wx.ALL, border=10)
@@ -376,6 +406,7 @@ class ImportDialog(wx.Dialog):
         self.SetMinSize(self.GetSize())
         self.Centre(wx.BOTH)
 
+        self.browse_btn.Bind(wx.EVT_BUTTON, self.on_browse)
         # Run the import on OK, however the button is reached
         ok_btn = self.FindWindowById(wx.ID_OK)
         if ok_btn:
@@ -384,36 +415,76 @@ class ImportDialog(wx.Dialog):
         self.Bind(wx.EVT_BUTTON, lambda e: self.EndModal(wx.ID_CANCEL),
                   id=wx.ID_CANCEL)
 
+    def _refresh_file_list(self):
+        self.file_list.Set([os.path.basename(p) for p in self.files])
+        self.count_label.SetLabel("{} selected".format(len(self.files)))
+
+    def on_browse(self, event):
+        dlg = wx.FileDialog(
+            self,
+            message="Choose CSV files (max {})".format(MAX_IMPORT_FILES),
+            defaultDir="",
+            defaultFile="",
+            wildcard="CSV files (*.csv)|*.csv",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE)
+        if dlg.ShowModal() == wx.ID_OK:
+            paths = list(dlg.GetPaths())
+            if len(paths) > MAX_IMPORT_FILES:
+                wx.MessageBox(
+                    "Maximum {} files per import; only the first {} are kept.".format(
+                        MAX_IMPORT_FILES, MAX_IMPORT_FILES),
+                    "Warning", wx.OK | wx.ICON_WARNING)
+                paths = paths[:MAX_IMPORT_FILES]
+            self.files = paths
+            self._refresh_file_list()
+        dlg.Destroy()
+
     def on_import(self, event):
-        csv_path = self.file_picker.GetPath()
-        if not csv_path:
-            wx.MessageBox("Please choose a CSV file.", "Warning", wx.OK | wx.ICON_WARNING)
+        if not self.files:
+            wx.MessageBox("Please choose CSV files.", "Warning", wx.OK | wx.ICON_WARNING)
             return
 
         supplier = self.SUPPLIERS[self.supplier_radio.GetSelection()][1]
-        try:
-            res = import_csv(self.db_path, csv_path, supplier)
-        except Exception as e:
-            wx.MessageBox("Import failed: {}".format(e), "Error", wx.OK | wx.ICON_ERROR)
-            return
+        results = []
+        for path in self.files:
+            name = os.path.basename(path)
+            try:
+                res = import_csv(self.db_path, path, supplier)
+                results.append((name, res, None))
+            except Exception as e:
+                results.append((name, None, str(e)))
 
-        lines = [
-            "Import finished.",
-            "",
-            "File: {}".format(res['file_name']),
-            "Lines processed: {}".format(res['rows_read']),
-            "Rows added: {}".format(res['added']),
-            "Rows skipped: {}".format(res['skipped']),
-            "Currency: {}".format(res['currency']),
-        ]
-        warnings = []
-        if res['skipped_subtotal']:
-            warnings.append("- {} subtotal row(s) skipped".format(res['skipped_subtotal']))
-        if res['skipped_no_qty']:
-            warnings.append("- {} row(s) skipped (no valid quantity)".format(res['skipped_no_qty']))
-        if res['no_price']:
-            warnings.append("- {} row(s) without price".format(res['no_price']))
-        if warnings:
-            lines += ["", "Warnings:"] + warnings
-        wx.MessageBox("\n".join(lines), "Import", wx.OK | wx.ICON_INFORMATION)
-        self.EndModal(wx.ID_OK)
+        lines = []
+        total_added = 0
+        total_skipped = 0
+        errors = 0
+        ok_count = 0
+        for name, res, err in results:
+            if err:
+                errors += 1
+                lines.append("{}: ERROR — {}".format(name, err))
+            else:
+                ok_count += 1
+                total_added += res['added']
+                total_skipped += res['skipped']
+                lines.append("{}: OK".format(name))
+                lines.append("    Lines processed: {}, added: {}, skipped: {}, currency: {}".format(
+                    res['rows_read'], res['added'], res['skipped'], res['currency']))
+                if res['no_price']:
+                    lines.append("    Warning: {} row(s) without price".format(res['no_price']))
+                if res['skipped_subtotal']:
+                    lines.append("    Warning: {} subtotal row(s) skipped".format(res['skipped_subtotal']))
+                if res['skipped_no_qty']:
+                    lines.append("    Warning: {} row(s) without quantity skipped".format(res['skipped_no_qty']))
+            lines.append("")
+
+        lines.append("Total: {} file(s) OK, {} error(s); rows added: {}, rows skipped: {}".format(
+            ok_count, errors, total_added, total_skipped))
+        dlg = ImportResultsDialog(self, lines)
+        dlg.ShowModal()
+        dlg.Destroy()
+
+        if ok_count:
+            self.EndModal(wx.ID_OK)
+        else:
+            self.EndModal(wx.ID_CANCEL)
