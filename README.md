@@ -4,7 +4,7 @@
 
 A KiCad PCB-editor plugin that searches a local SQLite components database
 directly inside pcbnew. Click a supplier part number in the results to open
-its page on lcsc.com.
+its page on the supplier's site (LCSC or DigiKey).
 
 ## Features
 
@@ -14,8 +14,12 @@ its page on lcsc.com.
 - Info line under the results: total components in the DB, database location,
   and date/time of the last import.
 - Import supplier CSV files straight from the dialog (LCSC and DigiKey;
-  Mouser planned). Imported files are archived in `cvsdone/` next to the DB.
-- Results in a list with the supplier part number as a clickable link.
+  Mouser planned). Multi-select up to 5 files; the supplier is
+  auto-detected from the CSV header/file name, and a results dialog shows
+  per-file lines processed, added, skipped and warnings. Imported files are
+  archived in `cvsdone/` next to the DB.
+- Results in a list with the supplier part number as a clickable link
+  (opens the LCSC or DigiKey search page, matching the row's supplier).
 - Optional row tooltip showing which CSV file a component came from
   (toggled in Settings).
 - Settings dialog: choose which columns are visible and set a custom
@@ -24,10 +28,14 @@ its page on lcsc.com.
 
 ## Importing data
 
-In the dialog choose **Import CSV…**, pick the supplier format (LCSC is the
-default) and the CSV file. Supported columns are the LCSC order export and
-DigiKey order export formats. After a successful import the info line updates
-with the new total and last-update time.
+In the dialog choose **Import CSV…** and pick one or more CSV files
+(max 5 per batch). The supplier format is auto-detected per file from the
+CSV header (falling back to the file name); the supplier radio acts as a
+fallback when nothing can be detected. Supported formats are the LCSC and
+DigiKey order exports. After the import a results dialog shows, per file:
+lines processed, rows added, rows skipped (with reasons), currency and
+warnings. Rows without a supplier part number are skipped as a safety
+measure.
 
 Imported files are archived in a `cvsdone/` folder inside the active database
 folder (created automatically). Every imported row remembers which file it
@@ -40,7 +48,7 @@ currency: `€` in the price fields is treated as EUR, anything else as USD.
 The plugin expects a SQLite database at:
 
 ```
-<USER_DOCS>/KiCAD/Gen/scripts/components.db
+<USER_DOCS>/KiCad/ki-search/components.db
 ```
 
 with a table `components` containing the columns:
@@ -57,9 +65,9 @@ use **Install from File…** with a release zip from
 ## Usage
 
 Open a board in the PCB editor and click the KI-Search toolbar button, enter a
-search term and press **Enter** (or click **Search**). Double-click an LCSC
-part number to open it on lcsc.com. **Settings…** controls the visible columns
-and database path.
+search term and press **Enter** (or click **Search**). Double-click a part
+number to open it on the matching supplier's site (LCSC or DigiKey).
+**Settings…** controls the visible columns and database path.
 
 ## Tools
 
