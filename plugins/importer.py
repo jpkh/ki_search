@@ -346,6 +346,35 @@ def import_csv(db_path, csv_path, supplier):
 
 MAX_IMPORT_FILES = 5
 
+SUPPLIER_LABELS = {'LCSC': 'LCSC', 'DK': 'DigiKey', 'M': 'Mouser'}
+
+
+def detect_supplier(csv_path):
+    """Guess the supplier from the CSV header, falling back to the file name.
+
+    Returns 'LCSC', 'DK', 'M' or None when unknown.
+    """
+    try:
+        with open(csv_path, 'r', encoding='utf-8-sig', errors='replace') as f:
+            header = f.readline().lower()
+    except Exception:
+        header = ''
+    if 'digikey part' in header:
+        return 'DK'
+    if 'mouser part' in header:
+        return 'M'
+    if 'lcsc part number' in header:
+        return 'LCSC'
+
+    name = os.path.basename(csv_path).lower()
+    if name.startswith('lcsc'):
+        return 'LCSC'
+    if name.startswith('dk_') or name.startswith('digikey'):
+        return 'DK'
+    if 'mouser' in name:
+        return 'M'
+    return None
+
 
 class ImportResultsDialog(wx.Dialog):
     """Scrollable summary of a multi-file import run."""
@@ -375,7 +404,7 @@ class ImportDialog(wx.Dialog):
 
         vbox = wx.BoxSizer(wx.VERTICAL)
 
-        vbox.Add(wx.StaticText(self, label="Supplier CSV format:"),
+        vbox.Add(wx.StaticText(self, label="Supplier format fallback (auto-detected per file when possible):"),
                  flag=wx.ALL, border=10)
         self.supplier_radio = wx.RadioBox(
             self, choices=[s[0] for s in self.SUPPLIERS],
@@ -445,30 +474,46 @@ class ImportDialog(wx.Dialog):
             wx.MessageBox("Please choose CSV files.", "Warning", wx.OK | wx.ICON_WARNING)
             return
 
-        supplier = self.SUPPLIERS[self.supplier_radio.GetSelection()][1]
+        selected = self.SUPPLIERS[self.supplier_radio.GetSelection()][1]
         results = []
         for path in self.files:
-            name = os.path.basename(path)
+            entry = {
+                'name': os.path.basename(path),
+                'selected': selected,
+                'detected': detect_supplier(path),
+                'res': None,
+                'err': None,
+            }
+            entry['used'] = entry['detected'] or selected
             try:
-                res = import_csv(self.db_path, path, supplier)
-                results.append((name, res, None))
+                entry['res'] = import_csv(self.db_path, path, entry['used'])
             except Exception as e:
-                results.append((name, None, str(e)))
+                entry['err'] = str(e)
+            results.append(entry)
 
         lines = []
         total_added = 0
         total_skipped = 0
         errors = 0
         ok_count = 0
-        for name, res, err in results:
-            if err:
+        for e in results:
+            if e['err']:
                 errors += 1
-                lines.append("{}: ERROR — {}".format(name, err))
+                lines.append("{}: ERROR — {}".format(e['name'], e['err']))
             else:
                 ok_count += 1
+                res = e['res']
                 total_added += res['added']
                 total_skipped += res['skipped']
-                lines.append("{}: OK".format(name))
+                used_label = SUPPLIER_LABELS.get(e['used'], e['used'])
+                if e['detected'] is None:
+                    note = " — supplier not detected, imported as {}".format(used_label)
+                elif e['detected'] != e['selected']:
+                    note = " — auto-detected {}, selected was {}".format(
+                        used_label, SUPPLIER_LABELS.get(e['selected'], e['selected']))
+                else:
+                    note = " — {}".format(used_label)
+                lines.append("{}: OK{}".format(e['name'], note))
                 lines.append("    Lines processed: {}, added: {}, skipped: {}, currency: {}".format(
                     res['rows_read'], res['added'], res['skipped'], res['currency']))
                 if res['no_price']:
