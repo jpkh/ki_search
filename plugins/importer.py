@@ -207,6 +207,7 @@ def import_csv(db_path, csv_path, supplier):
     skipped = 0
     skipped_subtotal = 0
     skipped_no_qty = 0
+    skipped_no_pn = 0
     no_price = 0
     rows_read = 0
     conn = sqlite3.connect(db_path)
@@ -256,6 +257,10 @@ def import_csv(db_path, csv_path, supplier):
                     continue
 
                 if supplier == 'LCSC':
+                    if not (row.get('LCSC Part Number') or '').strip():
+                        skipped += 1
+                        skipped_no_pn += 1
+                        continue
                     min_mult_raw = (
                         row.get('Min/Mult Order Qty.') or
                         row.get('Min\\Mult Order Qty.') or
@@ -277,6 +282,10 @@ def import_csv(db_path, csv_path, supplier):
                         'supplier': 'LCSC',
                     }
                 else:  # DK (DigiKey)
+                    if not (row.get('DigiKey Part #') or '').strip():
+                        skipped += 1
+                        skipped_no_pn += 1
+                        continue
                     data = {
                         'lcsc_part_number': (row.get('DigiKey Part #') or '').strip(),
                         'manufacture_part_number': (row.get('Manufacturer Part Number') or '').strip(),
@@ -339,6 +348,7 @@ def import_csv(db_path, csv_path, supplier):
         'skipped': skipped,
         'skipped_subtotal': skipped_subtotal,
         'skipped_no_qty': skipped_no_qty,
+        'skipped_no_pn': skipped_no_pn,
         'no_price': no_price,
         'currency': currency,
     }
@@ -522,6 +532,9 @@ class ImportDialog(wx.Dialog):
                     lines.append("    Warning: {} subtotal row(s) skipped".format(res['skipped_subtotal']))
                 if res['skipped_no_qty']:
                     lines.append("    Warning: {} row(s) without quantity skipped".format(res['skipped_no_qty']))
+                if res['skipped_no_pn']:
+                    lines.append("    Warning: {} row(s) without supplier part number skipped".format(
+                        res['skipped_no_pn']))
             lines.append("")
 
         lines.append("Total: {} file(s) OK, {} error(s); rows added: {}, rows skipped: {}".format(

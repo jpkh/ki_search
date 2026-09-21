@@ -232,6 +232,7 @@ def import_csv(db_path, csv_path, supplier):
 
     added = 0
     skipped = 0
+    skipped_no_pn = 0
     no_price = 0
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -275,6 +276,10 @@ def import_csv(db_path, csv_path, supplier):
                             break
 
                 if supplier == 'LCSC':
+                    if not (row.get('LCSC Part Number') or '').strip():
+                        skipped += 1
+                        skipped_no_pn += 1
+                        continue
                     min_mult_raw = (
                         row.get('Min/Mult Order Qty.') or
                         row.get('Min\\Mult Order Qty.') or
@@ -296,6 +301,10 @@ def import_csv(db_path, csv_path, supplier):
                         'supplier': 'LCSC',
                     }
                 else:  # DK (DigiKey)
+                    if not (row.get('DigiKey Part #') or '').strip():
+                        skipped += 1
+                        skipped_no_pn += 1
+                        continue
                     data = {
                         'lcsc_part_number': (row.get('DigiKey Part #') or '').strip(),
                         'manufacture_part_number': (row.get('Manufacturer Part Number') or '').strip(),
@@ -350,7 +359,7 @@ def import_csv(db_path, csv_path, supplier):
         n += 1
     os.rename(csv_path, target)
 
-    return added, skipped, currency, no_price
+    return added, skipped, currency, no_price, skipped_no_pn
 
 
 # ------------------------------------------------------------- rescan
@@ -573,10 +582,11 @@ def main():
             print('    SKIP: unrecognized CSV format\n')
             continue
         try:
-            added, skipped, currency, no_price = import_csv(db_path, path, supplier)
+            added, skipped, currency, no_price, skipped_no_pn = import_csv(db_path, path, supplier)
             price_note = '  *** {} row(s) WITHOUT price!'.format(no_price) if no_price else ''
-            print('    OK: supplier={} added={} skipped={} currency={} -> cvsdone/{}{}'.format(
-                supplier, added, skipped, currency, price_note))
+            pn_note = '  *** {} row(s) WITHOUT supplier part number skipped!'.format(skipped_no_pn) if skipped_no_pn else ''
+            print('    OK: supplier={} added={} skipped={} currency={} -> cvsdone/{}{}{}'.format(
+                supplier, added, skipped, currency, price_note, pn_note))
             total_added += added
         except Exception as e:
             print('    ERROR: {}\n'.format(e))
