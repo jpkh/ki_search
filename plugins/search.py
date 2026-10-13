@@ -163,6 +163,8 @@ class SearchDialog(wx.Dialog):
     def _ensure_database(self, db_path):
         """Ask the user to create the database when it does not exist."""
         if os.path.isfile(db_path):
+            # Idempotent: also covers schema migrations for existing DBs
+            ensure_schema(db_path)
             return True
         dlg = wx.MessageDialog(
             self,
