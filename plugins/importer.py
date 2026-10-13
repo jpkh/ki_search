@@ -43,7 +43,8 @@ def ensure_schema(db_path):
         order_price REAL,
         supplier TEXT DEFAULT 'LC',
         import_id INTEGER,
-        schema_version INTEGER DEFAULT 1
+        schema_version INTEGER DEFAULT 1,
+        location TEXT
     )
     ''')
     cur.execute('''
@@ -72,6 +73,8 @@ def ensure_schema(db_path):
         cur.execute("ALTER TABLE components ADD COLUMN schema_version INTEGER")
         # Stamp pre-versioning rows so they are distinguishable from new imports
         cur.execute("UPDATE components SET schema_version = 0 WHERE schema_version IS NULL")
+    if 'location' not in columns:
+        cur.execute("ALTER TABLE components ADD COLUMN location TEXT")
 
     cur.execute("PRAGMA table_info(imports)")
     import_columns = [row[1] for row in cur.fetchall()]
@@ -84,6 +87,18 @@ def ensure_schema(db_path):
 
     conn.commit()
     conn.close()
+
+
+def set_component_location(db_path, rowid, location):
+    """Update the stored location code for a single component row."""
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE components SET location = ? WHERE rowid = ?",
+            (location or None, rowid))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_db_stats(db_path):

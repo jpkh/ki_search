@@ -18,10 +18,41 @@ import wx
 import pcbnew
 import webbrowser
 
-from .config import COLUMNS, default_db_relpath, default_db_filename, plugin_version
+from .config import COLUMNS, default_db_relpath, default_db_filename, plugin_version, LOCATIONS, LOCATION_EMPTY
 from .settings import load_options, save_options, SettingsDialog
-from .importer import get_db_stats, ensure_schema, ImportDialog
+from .importer import get_db_stats, ensure_schema, ImportDialog, set_component_location
 from .log_util import log_message
+
+
+class EditLocationDialog(wx.Dialog):
+    """Small picker for a component's storage location (static code list)."""
+
+    CLEAR_LABEL = '(clear location)'
+
+    def __init__(self, parent, current_location):
+        super().__init__(parent, title="Edit Location")
+        choices = [self.CLEAR_LABEL] + list(LOCATIONS)
+
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        vbox.Add(wx.StaticText(self, label="Storage location:"),
+                 flag=wx.ALL, border=10)
+        self.choice = wx.Choice(self, choices=choices)
+        index = choices.index(current_location) if current_location in choices else 0
+        self.choice.SetSelection(index)
+        vbox.Add(self.choice, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=10)
+
+        btns = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        vbox.Add(btns, flag=wx.ALIGN_RIGHT | wx.ALL, border=10)
+
+        self.SetSizer(vbox)
+        self.Fit()
+        self.SetMinSize(self.GetSize())
+        self.Centre(wx.BOTH)
+
+    def get_location(self):
+        """Return the chosen location code, or '' for the clear option."""
+        selection = self.choice.GetStringSelection()
+        return '' if selection == self.CLEAR_LABEL else selection
 
 
 class SearchDatabasePlugin(pcbnew.ActionPlugin):
@@ -94,7 +125,8 @@ class SearchDialog(wx.Dialog):
         self.settings_btn.Bind(wx.EVT_BUTTON, self.on_settings)
         self.result_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.on_item_click)
         self.result_list.Bind(wx.EVT_MOTION, self.on_result_motion)
-        self._row_meta = []  # (import_id, source file) aligned with list rows
+        self.result_list.Bind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.on_result_right_click)
+        self._row_meta = []  # dicts (rowid, import_id, source_file, supplier, location) aligned with list rows
 
         panel.SetSizer(vbox)
         # Defer the info refresh so the main dialog shows before any
@@ -112,6 +144,8 @@ class SearchDialog(wx.Dialog):
             self.result_list.InsertColumn(i, header, format=fmt, width=width)
         self.lcsc_col = next(
             (i for i, c in enumerate(self.columns) if c[0] == 'lcsc_part_number'), None)
+        self.loc_col = next(
+            (i for i, c in enumerate(self.columns) if c[0] == 'location'), None)
 
     def _refresh_info(self):
         db_path = self.get_database_path()
@@ -165,7 +199,7 @@ class SearchDialog(wx.Dialog):
             return
         supplier = 'LCSC'
         if 0 <= item_index < len(self._row_meta):
-            supplier = self._row_meta[item_index][2] or 'LCSC'
+            supplier = self._row_meta[item_index]['supplier'] or 'LCSC'
         if supplier == 'DK':
             url = "https://www.digikey.com/en/products/result?keywords={}".format(part_number)
         else:
@@ -194,18 +228,25 @@ class SearchDialog(wx.Dialog):
         link_font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
                             wx.FONTWEIGHT_NORMAL, underline=True)
         for row in results:
-            values = dict(zip(self.DB_COLUMN_ORDER + ['import_id', 'source_file', 'supplier'], row))
+            values = dict(zip(['rowid'] + self.DB_COLUMN_ORDER + ['import_id', 'source_file', 'supplier'], row))
             first_value = str(values.get(self.columns[0][0], ''))
             index = self.result_list.InsertItem(self.result_list.GetItemCount(), first_value)
             for col, (key, _header, _width, _right) in enumerate(self.columns):
-                self.result_list.SetItem(index, col, str(values.get(key, '')))
+                cell = values.get(key, '')
+                if key == 'location' and not cell:
+                    cell = LOCATION_EMPTY
+                self.result_list.SetItem(index, col, str(cell))
             if self.lcsc_col is not None:
                 # Style the LCSC Pn column as a blue, underlined link
                 self.result_list.SetItemFont(index, link_font)
                 self.result_list.SetItemTextColour(index, wx.Colour(0, 0, 255))
-            self._row_meta.append((values.get('import_id'),
-                                   values.get('source_file'),
-                                   values.get('supplier')))
+            self._row_meta.append({
+                'rowid': values.get('rowid'),
+                'import_id': values.get('import_id'),
+                'source_file': values.get('source_file'),
+                'supplier': values.get('supplier'),
+                'location': values.get('location') or '',
+            })
 
     def on_result_motion(self, event):
         """Show the source CSV file of the hovered row as a tooltip."""
@@ -216,7 +257,7 @@ class SearchDialog(wx.Dialog):
             return
         item, _flags = self.result_list.HitTest(event.GetPosition())
         if 0 <= item < len(self._row_meta):
-            source = self._row_meta[item][1] or 'unknown'
+            source = self._row_meta[item]['source_file'] or 'unknown'
             tip = self.result_list.GetToolTip()
             if tip is None:
                 tip = wx.ToolTip('')
@@ -226,6 +267,33 @@ class SearchDialog(wx.Dialog):
         else:
             self.result_list.SetToolTip(None)
         event.Skip()
+
+    def on_result_right_click(self, event):
+        """Right-click context menu on a result row: Edit Location…"""
+        item_index = event.GetIndex()
+        if not (0 <= item_index < len(self._row_meta)):
+            return
+        menu = wx.Menu()
+        edit_item = menu.Append(wx.ID_ANY, "Edit Location…")
+        self.Bind(wx.EVT_MENU, lambda evt: self.on_edit_location(item_index), edit_item)
+        self.result_list.PopupMenu(menu)
+        menu.Destroy()
+
+    def on_edit_location(self, item_index):
+        """Open the small location picker and persist the choice to the DB."""
+        meta = self._row_meta[item_index]
+        if meta.get('rowid') is None:
+            wx.MessageBox("This row has no database id; cannot edit its location.",
+                          "Error", wx.OK | wx.ICON_ERROR)
+            return
+        dlg = EditLocationDialog(self, meta.get('location') or '')
+        if dlg.ShowModal() == wx.ID_OK:
+            new_location = dlg.get_location()
+            set_component_location(self.get_database_path(), meta['rowid'], new_location)
+            meta['location'] = new_location
+            if self.loc_col is not None:
+                self.result_list.SetItem(item_index, self.loc_col, new_location or LOCATION_EMPTY)
+        dlg.Destroy()
 
     def on_import(self, event):
         dlg = ImportDialog(self, self.get_database_path())
@@ -258,8 +326,8 @@ class SearchDialog(wx.Dialog):
             cursor = conn.cursor()
 
             query = '''
-            SELECT c.lcsc_part_number, c.manufacture_part_number, c.manufacturer, c.package,
-                   c.description, c.order_qty, c.unit_price, c.order_price,
+            SELECT c.rowid, c.lcsc_part_number, c.manufacture_part_number, c.manufacturer, c.package,
+                   c.description, c.order_qty, c.unit_price, c.order_price, c.location,
                    c.import_id, i.file_name, i.supplier
             FROM components c
             LEFT JOIN imports i ON i.rowid = c.import_id

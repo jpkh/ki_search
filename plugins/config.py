@@ -34,7 +34,18 @@ COLUMNS = [
     ('order_qty',               'O-Qty',        70,  True),
     ('unit_price',              'UP($)',        70,  True),
     ('order_price',             'OP($)',        70,  True),
+    ('location',                'LOC',          60,  False),
 ]
+
+# Static storage bin codes (manual list for now; an editor is planned later).
+LOCATIONS = (
+    ['R{:02d}'.format(n) for n in range(1, 29)] +
+    ['B{:02d}'.format(n) for n in range(1, 9)] +
+    ['BU{}'.format(n) for n in range(1, 9)]
+)
+
+# Shown in the LOC column when a component has no location assigned yet.
+LOCATION_EMPTY = '+++'
 
 default_db_filename = 'components.db'
 
