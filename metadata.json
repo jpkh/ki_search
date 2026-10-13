@@ -2,7 +2,7 @@
     "$schema": "https://go.kicad.org/pcm/schemas/v1",
     "name": "KI-Search",
     "description": "Search components in the PCB editor",
-    "description_full": "Search a local SQLite components database directly inside the KiCad PCB editor. Click an LCSC part number to open its page on lcsc.com.",
+    "description_full": "Search a local SQLite components database directly inside the KiCad PCB editor. Click an LCSC part number to open its page on lcsc.com. Track a storage location (LOC) per component, editable via right-click.",
     "identifier": "com.github.jpkh.ki-search",
     "type": "plugin",
     "author": {
@@ -23,7 +23,7 @@
     ],
     "versions": [
         {
-            "version": "1.1.4",
+            "version": "1.1.5",
             "status": "stable",
             "kicad_version": "8.0",
             "kicad_version_max": "10.99",

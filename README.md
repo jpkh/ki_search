@@ -25,6 +25,10 @@ its page on the supplier's site (LCSC or DigiKey).
 - Settings dialog: choose which columns are visible and set a custom
   database path.
 - Database lives outside the plugin package (your documents folder).
+- Storage location (LOC column): shows a component's storage bin code
+  (e.g. `R01`, `B02`, `BU3`), or `+++` when none is set. Right-click a
+  result row and choose **Edit Location…** to pick a code from the static
+  list, or clear it.
 
 ## Importing data
 
@@ -54,7 +58,7 @@ The plugin expects a SQLite database at:
 with a table `components` containing the columns:
 
 `lcsc_part_number`, `manufacture_part_number`, `manufacturer`, `package`,
-`description`, `order_qty`, `unit_price`, `order_price`
+`description`, `order_qty`, `unit_price`, `order_price`, `location`
 
 ## Installation
 
