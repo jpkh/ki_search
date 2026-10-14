@@ -85,6 +85,9 @@ class SearchDialog(wx.Dialog):
     # Fixed SELECT order; displayed columns are a subset chosen in settings
     DB_COLUMN_ORDER = [c[0] for c in COLUMNS]
 
+    # Quick-insert buttons shown after the search box
+    INSERT_SYMBOLS = ['Ω', 'μ']
+
     def __init__(self, parent):
         title = "Search Components  Ki-Search V{}".format(plugin_version)
         super().__init__(parent, title=title, size=(1200, 420))
@@ -96,6 +99,8 @@ class SearchDialog(wx.Dialog):
         # Row 1: search + actions
         hbox1 = wx.BoxSizer(wx.HORIZONTAL)
         self.search_ctrl = wx.TextCtrl(panel, size=(400, -1), style=wx.TE_PROCESS_ENTER)
+        self.search_ctrl.SetToolTip(
+            "Wildcards: * = any characters, ? = one character")
         self.search_btn = wx.Button(panel, label="Search")
         self.import_btn = wx.Button(panel, label="Import CSV…")
         self.settings_btn = wx.Button(panel, label="Settings…")
@@ -103,6 +108,15 @@ class SearchDialog(wx.Dialog):
                   flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
         hbox1.Add(self.search_ctrl,
                   flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
+        hbox1.Add(wx.StaticText(panel, label="Add:"),
+                  flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=2)
+        for symbol in self.INSERT_SYMBOLS:
+            btn = wx.Button(panel, label=symbol, size=(30, -1))
+            btn.SetToolTip("Insert {} at the cursor".format(symbol))
+            btn.Bind(wx.EVT_BUTTON,
+                     lambda evt, s=symbol: self.on_insert_symbol(s))
+            hbox1.Add(btn,
+                      flag=wx.ALIGN_CENTER_VERTICAL | wx.LEFT, border=2)
         hbox1.Add(self.search_btn,
                   flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
         hbox1.Add(self.import_btn,
@@ -217,6 +231,11 @@ class SearchDialog(wx.Dialog):
         else:
             url = "https://www.lcsc.com/search?q={}".format(part_number)
         webbrowser.open(url)
+
+    def on_insert_symbol(self, symbol):
+        """Insert the clicked symbol at the search box cursor position."""
+        self.search_ctrl.WriteText(symbol)
+        self.search_ctrl.SetFocus()
 
     def on_search(self, event):
         """Perform a database search based on user input."""
@@ -365,7 +384,8 @@ class SearchDialog(wx.Dialog):
             OR CAST(c.unit_price AS TEXT) LIKE ?
             OR CAST(c.order_price AS TEXT) LIKE ?
             '''
-            search_value = "%{}%".format(search_term)
+            search_value = "%{}%".format(
+                search_term.replace('*', '%').replace('?', '_'))
             cursor.execute(query, [search_value] * 8)
             results = cursor.fetchall()
             conn.close()
