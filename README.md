@@ -1,6 +1,6 @@
 # KI-Search — Component Search for KiCad
 
-![KI-Search dialog](assets/ki_search-UI.png)
+![KI-Search dialog](assets/ki_search_UI.png)
 
 A KiCad PCB-editor plugin that searches a local SQLite components database
 directly inside pcbnew. Click a supplier part number in the results to open
