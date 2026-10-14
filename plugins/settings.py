@@ -17,8 +17,8 @@ import os
 import wx
 
 from .config import settingsFileName, COLUMNS
-from .importer import (get_locations, add_location, rename_location,
-                       remove_location, count_location_rows)
+from .importer import (get_locations, add_location, update_location,
+                       set_location_disabled)
 
 
 def get_settings_file_path():
@@ -117,23 +117,41 @@ class SettingsDialog(wx.Dialog):
         box = wx.StaticBox(self, label="Storage locations")
         sizer = wx.StaticBoxSizer(box, wx.VERTICAL)
 
-        self.loc_list = wx.ListBox(self, size=(220, 300))
+        self.loc_list = wx.ListBox(self, size=(220, 250))
         sizer.Add(self.loc_list, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
 
+        fields = wx.GridSizer(3, 2, 5, 5)
+        fields.Add(wx.StaticText(self, label="UID:"),
+                   flag=wx.ALIGN_CENTER_VERTICAL)
+        self.loc_uid_ctrl = wx.TextCtrl(self)
+        self.loc_uid_ctrl.SetEditable(False)
+        fields.Add(self.loc_uid_ctrl, flag=wx.EXPAND)
+        fields.Add(wx.StaticText(self, label="CODE:"),
+                   flag=wx.ALIGN_CENTER_VERTICAL)
+        self.loc_code_ctrl = wx.TextCtrl(self)
+        fields.Add(self.loc_code_ctrl, flag=wx.EXPAND)
+        fields.Add(wx.StaticText(self, label="NAME:"),
+                   flag=wx.ALIGN_CENTER_VERTICAL)
+        self.loc_name_ctrl = wx.TextCtrl(self)
+        fields.Add(self.loc_name_ctrl, flag=wx.EXPAND)
+        sizer.Add(fields, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=10)
+
         btn_row = wx.BoxSizer(wx.HORIZONTAL)
-        self.add_loc_btn = wx.Button(self, label="Add")
-        self.rename_loc_btn = wx.Button(self, label="Rename")
-        self.remove_loc_btn = wx.Button(self, label="Remove")
-        btn_row.Add(self.add_loc_btn, flag=wx.RIGHT, border=5)
-        btn_row.Add(self.rename_loc_btn, flag=wx.RIGHT, border=5)
-        btn_row.Add(self.remove_loc_btn)
-        sizer.Add(btn_row, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        self.loc_upd_btn = wx.Button(self, label="UPD")
+        self.loc_add_btn = wx.Button(self, label="Add")
+        self.loc_dien_btn = wx.Button(self, label="DI")
+        btn_row.Add(self.loc_upd_btn, flag=wx.RIGHT, border=5)
+        btn_row.Add(self.loc_add_btn, flag=wx.RIGHT, border=5)
+        btn_row.Add(self.loc_dien_btn)
+        sizer.Add(btn_row, flag=wx.LEFT | wx.RIGHT | wx.TOP, border=10)
 
         note = wx.StaticText(
             self,
-            label="Rename updates every component row using\n"
-                  "that code. Remove clears the code from\n"
-                  "those rows.")
+            label="Disabled locations stay listed after the\n"
+                  "active ones and cannot be newly assigned;\n"
+                  "existing rows keep them. UPD saves CODE\n"
+                  "and NAME of the selected row. Add uses\n"
+                  "the CODE box; the UID is auto-assigned.")
         note_font = note.GetFont()
         note_font.SetPointSize(max(6, note_font.GetPointSize() - 1))
         note.SetFont(note_font)
@@ -141,69 +159,99 @@ class SettingsDialog(wx.Dialog):
             wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
         sizer.Add(note, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
-        self.add_loc_btn.Bind(wx.EVT_BUTTON, self.on_add_location)
-        self.rename_loc_btn.Bind(wx.EVT_BUTTON, self.on_rename_location)
-        self.remove_loc_btn.Bind(wx.EVT_BUTTON, self.on_remove_location)
+        self.loc_list.Bind(wx.EVT_LISTBOX, self.on_loc_select)
+        self.loc_upd_btn.Bind(wx.EVT_BUTTON, self.on_loc_update)
+        self.loc_add_btn.Bind(wx.EVT_BUTTON, self.on_loc_add)
+        self.loc_dien_btn.Bind(wx.EVT_BUTTON, self.on_loc_toggle)
         return sizer
 
-    def _refresh_locations(self):
+    def _refresh_locations(self, select_id=None, select_code=None):
         try:
-            self.loc_list.Set(get_locations(self.db_path))
+            self._loc_rows = get_locations(self.db_path, include_disabled=True)
         except Exception:
-            self.loc_list.Set([])
+            self._loc_rows = []
+        self.loc_list.Set(
+            ["{}  {}  {}".format(loc_id, code, name)
+             for loc_id, code, name, _disabled in self._loc_rows])
+        index = None
+        if select_id is not None:
+            for i, (loc_id, _c, _n, _d) in enumerate(self._loc_rows):
+                if loc_id == select_id:
+                    index = i
+                    break
+        elif select_code is not None:
+            for i, (_i, code, _n, _d) in enumerate(self._loc_rows):
+                if code == select_code:
+                    index = i
+                    break
+        if index is None and self._loc_rows:
+            index = 0
+        if index is None:
+            self.loc_list.SetSelection(wx.NOT_FOUND)
+            self._clear_loc_fields()
+        else:
+            self.loc_list.SetSelection(index)
+            self._fill_loc_fields(index)
 
-    def _selected_location(self):
-        sel = self.loc_list.GetSelection()
-        if sel == wx.NOT_FOUND:
-            return None
-        return self.loc_list.GetString(sel)
+    def _clear_loc_fields(self):
+        self.loc_uid_ctrl.SetValue('')
+        self.loc_code_ctrl.SetValue('')
+        self.loc_name_ctrl.SetValue('')
+        self.loc_dien_btn.SetLabel("DI")
+        self._loc_index = None
 
-    def on_add_location(self, event):
-        dlg = wx.TextEntryDialog(self, "New location code:", "Add Location")
-        if dlg.ShowModal() == wx.ID_OK:
-            try:
-                add_location(self.db_path, dlg.GetValue())
-            except Exception as e:
-                wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
-            self._refresh_locations()
-        dlg.Destroy()
+    def _fill_loc_fields(self, index):
+        loc_id, code, name, disabled = self._loc_rows[index]
+        self.loc_uid_ctrl.SetValue(str(loc_id))
+        self.loc_code_ctrl.SetValue(code)
+        self.loc_name_ctrl.SetValue(name)
+        self.loc_dien_btn.SetLabel("EN" if disabled else "DI")
+        self._loc_index = index
 
-    def on_rename_location(self, event):
-        old_name = self._selected_location()
-        if not old_name:
+    def on_loc_select(self, event):
+        index = self.loc_list.GetSelection()
+        if index != wx.NOT_FOUND:
+            self._fill_loc_fields(index)
+        else:
+            self._clear_loc_fields()
+
+    def on_loc_update(self, event):
+        if self._loc_index is None:
             wx.MessageBox("Select a location first.", "Warning",
                           wx.OK | wx.ICON_WARNING)
             return
-        dlg = wx.TextEntryDialog(
-            self, "New code for '{}':".format(old_name), "Rename Location",
-            value=old_name)
-        if dlg.ShowModal() == wx.ID_OK:
-            try:
-                rename_location(self.db_path, old_name, dlg.GetValue())
-            except Exception as e:
-                wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
-            self._refresh_locations()
-        dlg.Destroy()
+        loc_id, _code, _name, _disabled = self._loc_rows[self._loc_index]
+        try:
+            update_location(self.db_path, loc_id,
+                            self.loc_code_ctrl.GetValue(),
+                            self.loc_name_ctrl.GetValue())
+        except Exception as e:
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+        self._refresh_locations(select_id=loc_id)
 
-    def on_remove_location(self, event):
-        name = self._selected_location()
-        if not name:
+    def on_loc_add(self, event):
+        code = self.loc_code_ctrl.GetValue().strip()
+        if not code:
+            wx.MessageBox("Type the new location code in the CODE box first.",
+                          "Warning", wx.OK | wx.ICON_WARNING)
+            return
+        try:
+            add_location(self.db_path, code, self.loc_name_ctrl.GetValue())
+        except Exception as e:
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+        self._refresh_locations(select_code=code)
+
+    def on_loc_toggle(self, event):
+        if self._loc_index is None:
             wx.MessageBox("Select a location first.", "Warning",
                           wx.OK | wx.ICON_WARNING)
             return
-        affected = count_location_rows(self.db_path, name)
-        msg = "Remove '{}'?".format(name)
-        if affected:
-            msg += "\n{} component row(s) will have their location cleared.".format(affected)
-        dlg = wx.MessageDialog(self, msg, "Remove Location",
-                               wx.YES_NO | wx.ICON_QUESTION)
-        if dlg.ShowModal() == wx.ID_YES:
-            try:
-                remove_location(self.db_path, name)
-            except Exception as e:
-                wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
-            self._refresh_locations()
-        dlg.Destroy()
+        loc_id, _code, _name, disabled = self._loc_rows[self._loc_index]
+        try:
+            set_location_disabled(self.db_path, loc_id, not disabled)
+        except Exception as e:
+            wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+        self._refresh_locations(select_id=loc_id)
 
     def get_options(self):
         active = [k for k, cb in self.column_checks.items() if cb.GetValue()]

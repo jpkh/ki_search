@@ -26,19 +26,27 @@ from .log_util import log_message
 
 
 class EditLocationDialog(wx.Dialog):
-    """Small picker for a component's storage location (DB code list)."""
+    """Small picker for a component's storage location (id-based)."""
 
     CLEAR_LABEL = '(clear location)'
 
-    def __init__(self, parent, current_location, locations):
+    def __init__(self, parent, current_location_id, locations):
         super().__init__(parent, title="Edit Location")
-        choices = [self.CLEAR_LABEL] + list(locations)
+        self._ids = [self.CLEAR_LABEL] + [str(loc_id) for loc_id, _c, _n, _d in locations]
+        choices = [self.CLEAR_LABEL] + [
+            "{} — {}".format(code, name) if name else code
+            for _id, code, name, _disabled in locations]
 
         vbox = wx.BoxSizer(wx.VERTICAL)
         vbox.Add(wx.StaticText(self, label="Storage location:"),
                  flag=wx.ALL, border=10)
         self.choice = wx.Choice(self, choices=choices)
-        index = choices.index(current_location) if current_location in choices else 0
+        index = 0
+        if current_location_id:
+            try:
+                index = self._ids.index(str(current_location_id))
+            except ValueError:
+                index = 0
         self.choice.SetSelection(index)
         vbox.Add(self.choice, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=10)
 
@@ -51,9 +59,10 @@ class EditLocationDialog(wx.Dialog):
         self.Centre(wx.BOTH)
 
     def get_location(self):
-        """Return the chosen location code, or '' for the clear option."""
-        selection = self.choice.GetStringSelection()
-        return '' if selection == self.CLEAR_LABEL else selection
+        """Return the chosen location id, or None for the clear option."""
+        selection = self.choice.GetSelection()
+        raw = self._ids[selection]
+        return None if raw == self.CLEAR_LABEL else int(raw)
 
 
 class SearchDatabasePlugin(pcbnew.ActionPlugin):
@@ -231,7 +240,9 @@ class SearchDialog(wx.Dialog):
         link_font = wx.Font(10, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL,
                             wx.FONTWEIGHT_NORMAL, underline=True)
         for row in results:
-            values = dict(zip(['rowid'] + self.DB_COLUMN_ORDER + ['import_id', 'source_file', 'supplier'], row))
+            values = dict(zip(
+                ['rowid'] + self.DB_COLUMN_ORDER + ['location_id', 'import_id', 'source_file', 'supplier'],
+                row))
             first_value = str(values.get(self.columns[0][0], ''))
             index = self.result_list.InsertItem(self.result_list.GetItemCount(), first_value)
             for col, (key, _header, _width, _right) in enumerate(self.columns):
@@ -248,7 +259,7 @@ class SearchDialog(wx.Dialog):
                 'import_id': values.get('import_id'),
                 'source_file': values.get('source_file'),
                 'supplier': values.get('supplier'),
-                'location': values.get('location') or '',
+                'location_id': values.get('location_id'),
             })
 
     def on_result_motion(self, event):
@@ -292,14 +303,19 @@ class SearchDialog(wx.Dialog):
         db_path = self.get_database_path()
         if not self._ensure_database(db_path):
             return
-        locations = get_locations(db_path)
-        dlg = EditLocationDialog(self, meta.get('location') or '', locations)
+        locations = get_locations(db_path)  # active locations only
+        dlg = EditLocationDialog(self, meta.get('location_id'), locations)
         if dlg.ShowModal() == wx.ID_OK:
-            new_location = dlg.get_location()
-            set_component_location(db_path, meta['rowid'], new_location)
-            meta['location'] = new_location
+            new_id = dlg.get_location()
+            set_component_location(db_path, meta['rowid'], new_id)
+            meta['location_id'] = new_id
             if self.loc_col is not None:
-                self.result_list.SetItem(item_index, self.loc_col, new_location or LOCATION_EMPTY)
+                if new_id is None:
+                    label = LOCATION_EMPTY
+                else:
+                    label = next((code for i, code, _n, _d in locations if i == new_id),
+                                 LOCATION_EMPTY)
+                self.result_list.SetItem(item_index, self.loc_col, label)
         dlg.Destroy()
 
     def on_import(self, event):
@@ -334,10 +350,12 @@ class SearchDialog(wx.Dialog):
 
             query = '''
             SELECT c.rowid, c.lcsc_part_number, c.manufacture_part_number, c.manufacturer, c.package,
-                   c.description, c.order_qty, c.unit_price, c.order_price, c.location,
+                   c.description, c.order_qty, c.unit_price, c.order_price,
+                   COALESCE(l.code, c.location), c.location_id,
                    c.import_id, i.file_name, i.supplier
             FROM components c
             LEFT JOIN imports i ON i.rowid = c.import_id
+            LEFT JOIN locations l ON l.id = c.location_id
             WHERE c.lcsc_part_number LIKE ?
             OR c.manufacture_part_number LIKE ?
             OR c.manufacturer LIKE ?
