@@ -86,7 +86,7 @@ class SearchDialog(wx.Dialog):
     DB_COLUMN_ORDER = [c[0] for c in COLUMNS]
 
     # Quick-insert buttons shown after the search box
-    INSERT_SYMBOLS = ['Ω', 'μ']
+    INSERT_SYMBOLS = ['Ω', 'μ', '±', '°']
 
     def __init__(self, parent):
         title = "Search Components  Ki-Search V{}".format(plugin_version)
