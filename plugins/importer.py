@@ -20,7 +20,7 @@ from datetime import datetime
 
 import wx
 
-from .config import SCHEMA_VERSION
+from .config import LOCATIONS, SCHEMA_VERSION
 
 
 def ensure_schema(db_path):
@@ -63,6 +63,15 @@ def ensure_schema(db_path):
         currency TEXT
     )
     ''')
+    cur.execute('''
+    CREATE TABLE IF NOT EXISTS locations (
+        name TEXT PRIMARY KEY
+    )
+    ''')
+    # Seed the initial storage locations from the default code list
+    cur.executemany(
+        "INSERT OR IGNORE INTO locations (name) VALUES (?)",
+        [(name,) for name in LOCATIONS])
 
     # Migrations for older databases
     cur.execute("PRAGMA table_info(components)")
@@ -96,6 +105,87 @@ def set_component_location(db_path, rowid, location):
         conn.execute(
             "UPDATE components SET location = ? WHERE rowid = ?",
             (location or None, rowid))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_locations(db_path):
+    """Return the sorted list of storage location codes."""
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute("SELECT name FROM locations ORDER BY name").fetchall()
+    finally:
+        conn.close()
+    return [r[0] for r in rows]
+
+
+def add_location(db_path, name):
+    """Add a new storage location code. Raises ValueError on bad input."""
+    name = (name or '').strip()
+    if not name:
+        raise ValueError("Location name cannot be empty.")
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("INSERT INTO locations (name) VALUES (?)", (name,))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        raise ValueError("Location '{}' already exists.".format(name))
+    finally:
+        conn.close()
+
+
+def rename_location(db_path, old_name, new_name):
+    """Rename a location code; component rows using it are updated too."""
+    new_name = (new_name or '').strip()
+    if not new_name:
+        raise ValueError("Location name cannot be empty.")
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM locations WHERE name = ?", (old_name,))
+        if cur.fetchone()[0] == 0:
+            raise ValueError("Location '{}' not found.".format(old_name))
+        cur.execute("SELECT COUNT(*) FROM locations WHERE name = ?", (new_name,))
+        if cur.fetchone()[0]:
+            raise ValueError("Location '{}' already exists.".format(new_name))
+        cur.execute("UPDATE locations SET name = ? WHERE name = ?", (new_name, old_name))
+        cur.execute(
+            "UPDATE components SET location = ? WHERE location = ?",
+            (new_name, old_name))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def count_location_rows(db_path, name):
+    """Number of component rows currently using a location code."""
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM components WHERE location = ?",
+            (name,)).fetchone()
+    finally:
+        conn.close()
+    return row[0] if row else 0
+
+
+def remove_location(db_path, name):
+    """Remove a location code; component rows using it are cleared."""
+    ensure_schema(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM locations WHERE name = ?", (name,))
+        if cur.fetchone()[0] == 0:
+            raise ValueError("Location '{}' not found.".format(name))
+        cur.execute("DELETE FROM locations WHERE name = ?", (name,))
+        cur.execute(
+            "UPDATE components SET location = NULL WHERE location = ?",
+            (name,))
         conn.commit()
     finally:
         conn.close()

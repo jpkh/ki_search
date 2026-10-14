@@ -17,6 +17,8 @@ import os
 import wx
 
 from .config import settingsFileName, COLUMNS
+from .importer import (get_locations, add_location, rename_location,
+                       remove_location, count_location_rows)
 
 
 def get_settings_file_path():
@@ -59,23 +61,26 @@ def save_options(options):
 
 
 class SettingsDialog(wx.Dialog):
-    def __init__(self, parent, options):
-        super().__init__(parent, title="KI-Search Settings", size=(420, 520))
+    def __init__(self, parent, options, db_path):
+        super().__init__(parent, title="KI-Search Settings", size=(860, 540))
+        self.db_path = db_path
 
         vbox = wx.BoxSizer(wx.VERTICAL)
 
-        vbox.Add(wx.StaticText(self, label="Visible columns:"),
-                 flag=wx.ALL, border=10)
+        columns_box = wx.BoxSizer(wx.VERTICAL)
+
+        columns_box.Add(wx.StaticText(self, label="Visible columns:"),
+                        flag=wx.ALL, border=10)
 
         self.column_checks = {}
         for key, header, _width, _right in COLUMNS:
             cb = wx.CheckBox(self, label=header)
             cb.SetValue(key in options.get('active_columns', []))
             self.column_checks[key] = cb
-            vbox.Add(cb, flag=wx.LEFT | wx.RIGHT, border=20)
+            columns_box.Add(cb, flag=wx.LEFT | wx.RIGHT, border=20)
 
-        vbox.Add(wx.StaticText(self, label="Database folder (components.db is created inside;\nempty = Documents/KiCad/ki-search):"),
-                 flag=wx.ALL, border=10)
+        columns_box.Add(wx.StaticText(self, label="Database folder (components.db is created inside;\nempty = Documents/KiCad/ki-search):"),
+                        flag=wx.ALL, border=10)
         self.db_path_ctrl = wx.DirPickerCtrl(self, message="Choose the database folder")
         if options.get('db_path'):
             self.db_path_ctrl.SetPath(options.get('db_path', ''))
@@ -83,12 +88,18 @@ class SettingsDialog(wx.Dialog):
             # Empty setting: leave the picker field empty (SetPath('') would
             # show the current directory instead).
             self.db_path_ctrl.GetTextCtrl().SetValue('')
-        vbox.Add(self.db_path_ctrl,
-                 flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        columns_box.Add(self.db_path_ctrl,
+                        flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
 
         self.show_tooltip_check = wx.CheckBox(self, label='Show source CSV file name in row tooltips')
         self.show_tooltip_check.SetValue(bool(options.get('show_source_tooltip', True)))
-        vbox.Add(self.show_tooltip_check, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+        columns_box.Add(self.show_tooltip_check, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add(columns_box, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
+        hbox.Add(self._build_locations_panel(), proportion=1,
+                 flag=wx.EXPAND | wx.ALL, border=10)
+        vbox.Add(hbox, proportion=1, flag=wx.EXPAND)
 
         btns = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         vbox.Add(btns, flag=wx.ALIGN_RIGHT | wx.ALL, border=10)
@@ -97,6 +108,102 @@ class SettingsDialog(wx.Dialog):
         self.Fit()
         self.SetMinSize(self.GetSize())
         self.Centre(wx.BOTH)
+
+        self._refresh_locations()
+
+    # ----- Storage locations editor --------------------------------------
+
+    def _build_locations_panel(self):
+        box = wx.StaticBox(self, label="Storage locations")
+        sizer = wx.StaticBoxSizer(box, wx.VERTICAL)
+
+        self.loc_list = wx.ListBox(self, size=(220, 300))
+        sizer.Add(self.loc_list, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
+
+        btn_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.add_loc_btn = wx.Button(self, label="Add")
+        self.rename_loc_btn = wx.Button(self, label="Rename")
+        self.remove_loc_btn = wx.Button(self, label="Remove")
+        btn_row.Add(self.add_loc_btn, flag=wx.RIGHT, border=5)
+        btn_row.Add(self.rename_loc_btn, flag=wx.RIGHT, border=5)
+        btn_row.Add(self.remove_loc_btn)
+        sizer.Add(btn_row, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
+        note = wx.StaticText(
+            self,
+            label="Rename updates every component row using\n"
+                  "that code. Remove clears the code from\n"
+                  "those rows.")
+        note_font = note.GetFont()
+        note_font.SetPointSize(max(6, note_font.GetPointSize() - 1))
+        note.SetFont(note_font)
+        note.SetForegroundColour(
+            wx.SystemSettings.GetColour(wx.SYS_COLOUR_GRAYTEXT))
+        sizer.Add(note, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=10)
+
+        self.add_loc_btn.Bind(wx.EVT_BUTTON, self.on_add_location)
+        self.rename_loc_btn.Bind(wx.EVT_BUTTON, self.on_rename_location)
+        self.remove_loc_btn.Bind(wx.EVT_BUTTON, self.on_remove_location)
+        return sizer
+
+    def _refresh_locations(self):
+        try:
+            self.loc_list.Set(get_locations(self.db_path))
+        except Exception:
+            self.loc_list.Set([])
+
+    def _selected_location(self):
+        sel = self.loc_list.GetSelection()
+        if sel == wx.NOT_FOUND:
+            return None
+        return self.loc_list.GetString(sel)
+
+    def on_add_location(self, event):
+        dlg = wx.TextEntryDialog(self, "New location code:", "Add Location")
+        if dlg.ShowModal() == wx.ID_OK:
+            try:
+                add_location(self.db_path, dlg.GetValue())
+            except Exception as e:
+                wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+            self._refresh_locations()
+        dlg.Destroy()
+
+    def on_rename_location(self, event):
+        old_name = self._selected_location()
+        if not old_name:
+            wx.MessageBox("Select a location first.", "Warning",
+                          wx.OK | wx.ICON_WARNING)
+            return
+        dlg = wx.TextEntryDialog(
+            self, "New code for '{}':".format(old_name), "Rename Location",
+            value=old_name)
+        if dlg.ShowModal() == wx.ID_OK:
+            try:
+                rename_location(self.db_path, old_name, dlg.GetValue())
+            except Exception as e:
+                wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+            self._refresh_locations()
+        dlg.Destroy()
+
+    def on_remove_location(self, event):
+        name = self._selected_location()
+        if not name:
+            wx.MessageBox("Select a location first.", "Warning",
+                          wx.OK | wx.ICON_WARNING)
+            return
+        affected = count_location_rows(self.db_path, name)
+        msg = "Remove '{}'?".format(name)
+        if affected:
+            msg += "\n{} component row(s) will have their location cleared.".format(affected)
+        dlg = wx.MessageDialog(self, msg, "Remove Location",
+                               wx.YES_NO | wx.ICON_QUESTION)
+        if dlg.ShowModal() == wx.ID_YES:
+            try:
+                remove_location(self.db_path, name)
+            except Exception as e:
+                wx.MessageBox(str(e), "Error", wx.OK | wx.ICON_ERROR)
+            self._refresh_locations()
+        dlg.Destroy()
 
     def get_options(self):
         active = [k for k, cb in self.column_checks.items() if cb.GetValue()]

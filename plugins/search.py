@@ -18,20 +18,21 @@ import wx
 import pcbnew
 import webbrowser
 
-from .config import COLUMNS, default_db_relpath, default_db_filename, plugin_version, LOCATIONS, LOCATION_EMPTY
+from .config import COLUMNS, default_db_relpath, default_db_filename, plugin_version, LOCATION_EMPTY
 from .settings import load_options, save_options, SettingsDialog
-from .importer import get_db_stats, ensure_schema, ImportDialog, set_component_location
+from .importer import (get_db_stats, ensure_schema, ImportDialog,
+                       set_component_location, get_locations)
 from .log_util import log_message
 
 
 class EditLocationDialog(wx.Dialog):
-    """Small picker for a component's storage location (static code list)."""
+    """Small picker for a component's storage location (DB code list)."""
 
     CLEAR_LABEL = '(clear location)'
 
-    def __init__(self, parent, current_location):
+    def __init__(self, parent, current_location, locations):
         super().__init__(parent, title="Edit Location")
-        choices = [self.CLEAR_LABEL] + list(LOCATIONS)
+        choices = [self.CLEAR_LABEL] + list(locations)
 
         vbox = wx.BoxSizer(wx.VERTICAL)
         vbox.Add(wx.StaticText(self, label="Storage location:"),
@@ -288,10 +289,14 @@ class SearchDialog(wx.Dialog):
             wx.MessageBox("This row has no database id; cannot edit its location.",
                           "Error", wx.OK | wx.ICON_ERROR)
             return
-        dlg = EditLocationDialog(self, meta.get('location') or '')
+        db_path = self.get_database_path()
+        if not self._ensure_database(db_path):
+            return
+        locations = get_locations(db_path)
+        dlg = EditLocationDialog(self, meta.get('location') or '', locations)
         if dlg.ShowModal() == wx.ID_OK:
             new_location = dlg.get_location()
-            set_component_location(self.get_database_path(), meta['rowid'], new_location)
+            set_component_location(db_path, meta['rowid'], new_location)
             meta['location'] = new_location
             if self.loc_col is not None:
                 self.result_list.SetItem(item_index, self.loc_col, new_location or LOCATION_EMPTY)
@@ -304,7 +309,7 @@ class SearchDialog(wx.Dialog):
         dlg.Destroy()
 
     def on_settings(self, event):
-        dlg = SettingsDialog(self, self.options)
+        dlg = SettingsDialog(self, self.options, self.get_database_path())
         if dlg.ShowModal() == wx.ID_OK:
             self.options.update(dlg.get_options())
             save_options(self.options)
