@@ -15,6 +15,7 @@
 import csv
 import hashlib
 import os
+import re
 import sqlite3
 from datetime import datetime
 
@@ -136,7 +137,8 @@ def ensure_schema(db_path):
         supplier TEXT,
         imported_at TEXT,
         rows_added INTEGER,
-        currency TEXT
+        currency TEXT,
+        order_key TEXT
     )
     ''')
 
@@ -158,6 +160,15 @@ def ensure_schema(db_path):
     import_columns = [row[1] for row in cur.fetchall()]
     if 'currency' not in import_columns:
         cur.execute("ALTER TABLE imports ADD COLUMN currency TEXT")
+    if 'order_key' not in import_columns:
+        cur.execute("ALTER TABLE imports ADD COLUMN order_key TEXT")
+        # Backfill order keys from the file names of previous imports
+        for row in cur.execute("SELECT rowid, file_name FROM imports").fetchall():
+            key = order_key(row[1])
+            if key:
+                cur.execute(
+                    "UPDATE imports SET order_key = ? WHERE rowid = ?",
+                    (key, row[0]))
 
     _migrate_locations(conn)
 
@@ -170,11 +181,15 @@ def ensure_schema(db_path):
 
 
 def set_component_location(db_path, rowid, location_id):
-    """Update the stored location (by locations.id) for a component row."""
+    """Update the stored location (by locations.id) for a component row.
+
+    Also clears the legacy `location` text so the display cannot fall back
+    to a stale code after a "clear" or a change.
+    """
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
-            "UPDATE components SET location_id = ? WHERE rowid = ?",
+            "UPDATE components SET location_id = ?, location = NULL WHERE rowid = ?",
             (location_id or None, rowid))
         conn.commit()
     finally:
@@ -282,6 +297,26 @@ def _file_hash(path):
     return hasher.hexdigest()
 
 
+_LCSC_ORDER_RE = re.compile(r'WM(\d+)')
+_DK_ORDER_RE = re.compile(r'DK_PRODUCTS_(\d+)')
+
+
+def order_key(file_name):
+    """Extract a supplier order number from a CSV file name.
+
+    The LCSC export suffix is the export timestamp (re-exporting the same
+    order changes it), so the order number is the stable duplicate key.
+    Returns e.g. 'LCSC-2609210245', 'DK-84721215' or None.
+    """
+    m = _LCSC_ORDER_RE.search(file_name or '')
+    if m:
+        return 'LCSC-' + m.group(1)
+    m = _DK_ORDER_RE.search(file_name or '')
+    if m:
+        return 'DK-' + m.group(1)
+    return None
+
+
 def _is_duplicate(csv_path, cvsdone_folder):
     """True if an identical file was already imported (content hash)."""
     if not os.path.isdir(cvsdone_folder):
@@ -358,6 +393,7 @@ def import_csv(db_path, csv_path, supplier):
 
     file_name = os.path.basename(csv_path)
     content_hash = _file_hash(csv_path)
+    okey = order_key(file_name)
 
     # Legacy fallback: identical file already archived in cvsdone/
     if _is_duplicate(csv_path, cvsdone):
@@ -374,24 +410,36 @@ def import_csv(db_path, csv_path, supplier):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
-        # Duplicate check against the import log: content hash or file name
+        # Duplicate check against the import log: content hash, file name,
+        # or (for LCSC/DigiKey exports) the same supplier order number.
         cur.execute(
-            "SELECT file_name, imported_at FROM imports WHERE content_hash = ? OR file_name = ?",
+            "SELECT file_name, imported_at, order_key FROM imports "
+            "WHERE content_hash = ? OR file_name = ?",
             (content_hash, file_name))
         existing = cur.fetchone()
         if existing:
             raise RuntimeError(
                 "This CSV was already imported as '{}' on {}.".format(
                     existing[0], existing[1]))
+        if okey:
+            cur.execute(
+                "SELECT file_name, imported_at FROM imports WHERE order_key = ?",
+                (okey,))
+            existing = cur.fetchone()
+            if existing:
+                raise RuntimeError(
+                    "This CSV is another export of the same supplier order "
+                    "(already imported as '{}' on {}).".format(
+                        existing[0], existing[1]))
 
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         currency = 'EUR' if _header_has_euro(csv_path) else 'USD'
 
         # Register the import first to get its unique import number
         cur.execute(
-            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added, currency) "
-            "VALUES (?, ?, ?, ?, 0, ?)",
-            (file_name, content_hash, supplier, now, currency))
+            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added, currency, order_key) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?)",
+            (file_name, content_hash, supplier, now, currency, okey))
         import_id = cur.lastrowid
 
         with open(csv_path, newline='', encoding='utf-8-sig') as f:

@@ -77,7 +77,8 @@ def ensure_schema(db_path):
         supplier TEXT,
         imported_at TEXT,
         rows_added INTEGER,
-        currency TEXT
+        currency TEXT,
+        order_key TEXT
     )
     ''')
 
@@ -94,6 +95,14 @@ def ensure_schema(db_path):
     import_columns = [row[1] for row in cur.fetchall()]
     if 'currency' not in import_columns:
         cur.execute("ALTER TABLE imports ADD COLUMN currency TEXT")
+    if 'order_key' not in import_columns:
+        cur.execute("ALTER TABLE imports ADD COLUMN order_key TEXT")
+        for row in cur.execute("SELECT rowid, file_name FROM imports").fetchall():
+            key = order_key(row[1])
+            if key:
+                cur.execute(
+                    "UPDATE imports SET order_key = ? WHERE rowid = ?",
+                    (key, row[0]))
 
     cur.execute(
         "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
@@ -109,6 +118,26 @@ def file_hash(path):
     with open(path, 'rb') as f:
         hasher.update(f.read())
     return hasher.hexdigest()
+
+
+_LCSC_ORDER_RE = re.compile(r'WM(\d+)')
+_DK_ORDER_RE = re.compile(r'DK_PRODUCTS_(\d+)')
+
+
+def order_key(file_name):
+    """Extract a supplier order number from a CSV file name.
+
+    The LCSC export suffix is the export timestamp, so the order number is
+    the stable duplicate key. Returns e.g. 'LCSC-2609210245',
+    'DK-84721215' or None.
+    """
+    m = _LCSC_ORDER_RE.search(file_name or '')
+    if m:
+        return 'LCSC-' + m.group(1)
+    m = _DK_ORDER_RE.search(file_name or '')
+    if m:
+        return 'DK-' + m.group(1)
+    return None
 
 
 def folder_has_duplicate(csv_path, cvsdone):
@@ -226,6 +255,7 @@ def import_csv(db_path, csv_path, supplier):
 
     file_name = os.path.basename(csv_path)
     content_hash = file_hash(csv_path)
+    okey = order_key(file_name)
 
     if folder_has_duplicate(csv_path, cvsdone):
         raise RuntimeError('already imported (identical file found in cvsdone/)')
@@ -244,15 +274,24 @@ def import_csv(db_path, csv_path, supplier):
         if existing:
             raise RuntimeError(
                 "already imported as '{}' on {}".format(existing[0], existing[1]))
+        if okey:
+            cur.execute(
+                "SELECT file_name, imported_at FROM imports WHERE order_key = ?",
+                (okey,))
+            existing = cur.fetchone()
+            if existing:
+                raise RuntimeError(
+                    "same supplier order already imported as '{}' on {}".format(
+                        existing[0], existing[1]))
 
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         currency = 'EUR' if _header_has_euro(csv_path) else 'USD'
 
         # Register the import first to get its unique import number
         cur.execute(
-            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added, currency) "
-            "VALUES (?, ?, ?, ?, 0, ?)",
-            (file_name, content_hash, supplier, now, currency))
+            "INSERT INTO imports (file_name, content_hash, supplier, imported_at, rows_added, currency, order_key) "
+            "VALUES (?, ?, ?, ?, 0, ?, ?)",
+            (file_name, content_hash, supplier, now, currency, okey))
         import_id = cur.lastrowid
 
         with open(csv_path, newline='', encoding='utf-8-sig', errors='replace') as f:
