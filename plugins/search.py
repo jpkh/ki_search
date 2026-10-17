@@ -92,6 +92,9 @@ class SearchDialog(wx.Dialog):
         title = "Search Components  Ki-Search V{}".format(plugin_version)
         super().__init__(parent, title=title, size=(1200, 420))
         self.options = load_options()
+        # Last used storage location; offers a one-click "Add to <code>"
+        # entry in the row context menu. Persisted across sessions.
+        self._last_location_id = self.options.get('last_location') or None
 
         panel = wx.Panel(self)
         vbox = wx.BoxSizer(wx.VERTICAL)
@@ -302,13 +305,24 @@ class SearchDialog(wx.Dialog):
         event.Skip()
 
     def on_result_right_click(self, event):
-        """Right-click context menu on a result row: Edit Location…"""
+        """Right-click context menu on a result row: Edit Location… plus a
+        quick "Add to <last used location>" entry."""
         item_index = event.GetIndex()
         if not (0 <= item_index < len(self._row_meta)):
             return
         menu = wx.Menu()
         edit_item = menu.Append(wx.ID_ANY, "Edit Location…")
-        self.Bind(wx.EVT_MENU, lambda evt: self.on_edit_location(item_index), edit_item)
+        self.Bind(wx.EVT_MENU,
+                  lambda evt: self.on_edit_location(item_index), edit_item)
+        if self._last_location_id:
+            locations = get_locations(self.get_database_path())
+            code = next((c for i, c, _n, _d in locations
+                         if i == self._last_location_id), None)
+            if code:
+                quick_item = menu.Append(wx.ID_ANY, "Add to {}".format(code))
+                self.Bind(wx.EVT_MENU,
+                          lambda evt: self.on_quick_add_location(item_index),
+                          quick_item)
         self.result_list.PopupMenu(menu)
         menu.Destroy()
 
@@ -326,16 +340,42 @@ class SearchDialog(wx.Dialog):
         dlg = EditLocationDialog(self, meta.get('location_id'), locations)
         if dlg.ShowModal() == wx.ID_OK:
             new_id = dlg.get_location()
-            set_component_location(db_path, meta['rowid'], new_id)
-            meta['location_id'] = new_id
-            if self.loc_col is not None:
-                if new_id is None:
-                    label = LOCATION_EMPTY
-                else:
-                    label = next((code for i, code, _n, _d in locations if i == new_id),
-                                 LOCATION_EMPTY)
-                self.result_list.SetItem(item_index, self.loc_col, label)
+            self._apply_location(item_index, new_id)
+            if new_id is not None:
+                self._remember_location(new_id)
         dlg.Destroy()
+
+    def on_quick_add_location(self, item_index):
+        """Assign the last used location without opening the picker."""
+        self._apply_location(item_index, self._last_location_id)
+        self._remember_location(self._last_location_id)
+
+    def _apply_location(self, item_index, location_id):
+        """Write location_id for the row and update the visible LOC cell."""
+        meta = self._row_meta[item_index]
+        if meta.get('rowid') is None:
+            wx.MessageBox("This row has no database id; cannot edit its location.",
+                          "Error", wx.OK | wx.ICON_ERROR)
+            return
+        db_path = self.get_database_path()
+        if not self._ensure_database(db_path):
+            return
+        set_component_location(db_path, meta['rowid'], location_id)
+        meta['location_id'] = location_id
+        if self.loc_col is not None:
+            if location_id is None:
+                label = LOCATION_EMPTY
+            else:
+                locations = get_locations(db_path)
+                label = next((code for i, code, _n, _d in locations
+                              if i == location_id), LOCATION_EMPTY)
+            self.result_list.SetItem(item_index, self.loc_col, label)
+
+    def _remember_location(self, location_id):
+        """Remember the last used location for the quick-add menu entry."""
+        self._last_location_id = location_id
+        self.options['last_location'] = location_id
+        save_options(self.options)
 
     def on_import(self, event):
         dlg = ImportDialog(self, self.get_database_path())

@@ -91,6 +91,21 @@ python tools/processcvs-new.py -outDir C:\Temp\comp --rescan --dry-run
 python tools/processcvs-new.py -outDir C:\Temp\comp --rescan
 ```
 
+`tools/qraddscan.py` assigns a storage location to components by scanning the
+QR codes on LCSC bags (no KiCad needed). Point it at a location code, scan
+away, type `exit` when done. It parses the `pc:`/`pm:` fields, looks the part
+up in the database and writes the location to all matching rows. A timestamped
+backup of the database is made before the first write; `--dry-run` previews
+without changing anything:
+
+```sh
+python tools/qraddscan.py R15 --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
+python tools/qraddscan.py R15 --dry-run --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
+```
+
+The database path defaults to `Documents/KiCad/ki-search/components.db`, the
+same database the plugin uses, so `--db` can be omitted.
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE). Copyright (c) 2026 Jani Hirvinen.
