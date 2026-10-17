@@ -97,10 +97,12 @@ away, type `exit` when done. It parses the `pc:`/`pm:` fields and matches the
 part **by product code + order number + quantity** against the imports table,
 so one bag equals exactly one database row — rows from other orders or with a
 different quantity are never touched. Rows already at the target location are
-skipped with a note; overwriting a different location (or updating without an
-exact order/qty match) asks for confirmation. A timestamped backup of the
-database is made before the first write; `--dry-run` previews without
-changing anything and `--yes` auto-confirms every prompt:
+skipped with a note; overwriting a different location asks for confirmation.
+When no exact order/qty match exists (e.g. old bags whose QR order field
+reads `GB…` instead of `WM…`), the candidate rows are listed and you pick the
+matching one(s) by number (`1,3`) or `N` for none. A timestamped backup of
+the database is made before the first write; `--dry-run` previews without
+changing anything and `--yes` auto-selects every proposal:
 
 ```sh
 python tools/qrscan-add.py R15 --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
