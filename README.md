@@ -91,16 +91,20 @@ python tools/processcvs-new.py -outDir C:\Temp\comp --rescan --dry-run
 python tools/processcvs-new.py -outDir C:\Temp\comp --rescan
 ```
 
-`tools/qraddscan.py` assigns a storage location to components by scanning the
+`tools/qrscan-add.py` assigns a storage location to components by scanning the
 QR codes on LCSC bags (no KiCad needed). Point it at a location code, scan
-away, type `exit` when done. It parses the `pc:`/`pm:` fields, looks the part
-up in the database and writes the location to all matching rows. A timestamped
-backup of the database is made before the first write; `--dry-run` previews
-without changing anything:
+away, type `exit` when done. It parses the `pc:`/`pm:` fields and matches the
+part **by product code + order number + quantity** against the imports table,
+so one bag equals exactly one database row — rows from other orders or with a
+different quantity are never touched. Rows already at the target location are
+skipped with a note; overwriting a different location (or updating without an
+exact order/qty match) asks for confirmation. A timestamped backup of the
+database is made before the first write; `--dry-run` previews without
+changing anything and `--yes` auto-confirms every prompt:
 
 ```sh
-python tools/qraddscan.py R15 --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
-python tools/qraddscan.py R15 --dry-run --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
+python tools/qrscan-add.py R15 --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
+python tools/qrscan-add.py R15 --dry-run --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
 ```
 
 The database path defaults to `Documents/KiCad/ki-search/components.db`, the
