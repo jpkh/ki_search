@@ -22,8 +22,10 @@
 #
 # When no exact order/qty match exists (old QR labels with GB order
 # numbers, or bags whose order was never imported), the candidate rows are
-# listed and the user picks the matching one(s) with a number list
-# (e.g. 1,3) or N for none.
+# listed with the quantity-matching one(s) first (marked *), and the user
+# picks a single row number or N for none. In --dry-run mode the same
+# prompts appear but nothing is written; the output reports what would
+# happen.
 #
 # Usage:
 #   python qrscan-add.py R15 [LCSC] [--db PATH] [--dry-run] [--yes]
@@ -60,7 +62,7 @@ QR_FIELD_RE = re.compile(r'\b(on|pc|pm|qty|mc|cc|pdi|hp|wc):([^,}\s]+)')
 # components.import_id) carries the order_key and the source CSV file name.
 ROW_SQL = """
 SELECT c.rowid, c.order_qty, c.location_id, i.order_key, i.file_name,
-       l.code AS loc_code
+       l.code AS loc_code, c.unit_price
 FROM components c
 LEFT JOIN imports i ON i.rowid = c.import_id
 LEFT JOIN locations l ON l.id = c.location_id
@@ -123,17 +125,21 @@ def narrow_candidates(rows, on, qty):
                mismatch reporting.
     """
     rows = [dict(rowid=r[0], order_qty=r[1], location_id=r[2],
-                 order_key=r[3], file_name=r[4], loc_code=r[5]) for r in rows]
+                 order_key=r[3], file_name=r[4], loc_code=r[5],
+                 unit_price=r[6]) for r in rows]
 
     def describe(r):
         source = os.path.basename(r['file_name'] or 'unknown import')
         loc = r['loc_code'] or '---'
-        return 'row {} qty {} order {} loc {} ({})'.format(
+        price = ' price {:.4f}'.format(r['unit_price']) \
+            if r['unit_price'] is not None else ''
+        return 'row {} qty {} order {} loc {} ({}{})'.format(
             r['rowid'], r['order_qty'] or '?',
-            r['order_key'] or '?', loc, source)
+            r['order_key'] or '?', loc, source, price)
 
     details = [describe(r) for r in rows]
 
+    order_matched = True
     if on:
         want = norm_order(on)
         with_order = [r for r in rows
@@ -144,6 +150,7 @@ def narrow_candidates(rows, on, qty):
         elif unknown_order:
             # Old imports without an order key: order can't be verified.
             rows = unknown_order
+            order_matched = False
         else:
             return [], details
 
@@ -152,6 +159,11 @@ def narrow_candidates(rows, on, qty):
         if not qty_rows:
             return [], details
         rows = qty_rows
+
+    if not order_matched and len(rows) > 1:
+        # Multiple rows from unknown orders share the same quantity — the
+        # bag can't be mapped to exactly one row. Let the user pick.
+        return [], details
 
     return rows, details
 
@@ -174,31 +186,26 @@ def ask_yes_no(prompt, pending):
 
 
 def ask_selection(prompt, count, pending):
-    """Read a row selection like '1,3' or '2'. Returns the chosen 1-based
-    indexes (sorted) or [] for none. A scanned QR line is kept in pending.
-    """
-    sys.stdout.write(prompt)
-    sys.stdout.flush()
-    line = sys.stdin.readline()
-    if line == '':
-        return []
-    answer = line.strip().lower()
-    if answer in ('', 'n', 'no', 'none', '0'):
-        return []
-    chosen = set()
-    valid = True
-    for part in re.split(r'[\s,;]+', answer):
-        if not part:
-            continue
-        if part.isdigit() and 1 <= int(part) <= count:
-            chosen.add(int(part))
-        else:
-            valid = False
-    if valid and chosen:
-        return sorted(chosen)
-    # Not a valid answer: likely another QR scan, keep it for the main loop.
-    pending.append(line)
-    return []
+    """Read a single row number (1..count) or N for none. A scanned QR
+    line is kept in pending instead."""
+    while True:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        line = sys.stdin.readline()
+        if line == '':
+            return None
+        answer = line.strip().lower()
+        if answer in ('', 'n', 'no', 'none', '0'):
+            return None
+        if answer.isdigit() and 1 <= int(answer) <= count:
+            return int(answer)
+        if re.search(r'\b(pc|pm|on):', answer):
+            # Another QR scan: keep it for the main loop.
+            pending.append(line)
+            return None
+        sys.stdout.write('Invalid input — give one row number or N: ')
+        sys.stdout.flush()
+        prompt = ''
 
 
 def main():
@@ -357,27 +364,36 @@ def main():
 
         # No exact order/qty match: the QR order field is unreliable
         # (e.g. old GB-prefixed labels) or the bag's order is not in the
-        # DB. Propose the candidate rows and let the user pick.
+        # DB. Propose the candidate rows and let the user pick one.
+        # Rows whose quantity matches the bag are strong candidates:
+        # listed first and marked with *. In dry-run mode the selection
+        # is still requested, but nothing is written and the output
+        # reports what would happen.
         found += 1
         print('{} -> no exact order/qty match. Candidate rows:'.format(label))
-        for idx, d in enumerate(details, 1):
-            print('   {}. {}'.format(idx, d))
-        if args.dry_run:
-            print('[DRY-RUN] would propose the rows above; nothing updated.')
-            continue
+        display_order = list(range(len(candidates)))
+        if qty is not None:
+            display_order.sort(key=lambda i: 0 if candidates[i][1] == qty else 1)
+            if any(candidates[i][1] == qty for i in display_order):
+                print('   (*) = quantity matches the scanned bag')
+        for disp, i in enumerate(display_order, 1):
+            marker = '*' if (qty is not None and candidates[i][1] == qty) else ' '
+            print('   {}. {} {}'.format(disp, marker, details[i]))
         if args.yes:
-            chosen_indexes = list(range(1, len(candidates) + 1))
+            chosen_idx = display_order
         else:
-            chosen_indexes = ask_selection(
-                'Which row(s) match this bag? (e.g. 1,3 / N for none): ',
+            pick = ask_selection(
+                'Which row matches this bag? (row number, N = none): ',
                 len(candidates), pending)
-        if not chosen_indexes:
-            print('{} -> skipped (no row selected)'.format(label))
-            continue
-        chosen = [dict(rowid=c[0], order_qty=c[1], location_id=c[2],
-                       order_key=c[3], file_name=c[4], loc_code=c[5])
-                  for i, c in enumerate(candidates, 1)
-                  if i in chosen_indexes]
+            if pick is None:
+                print('{} -> skipped (no row selected)'.format(label))
+                continue
+            chosen_idx = [display_order[pick - 1]]
+        chosen = [dict(rowid=candidates[i][0], order_qty=candidates[i][1],
+                       location_id=candidates[i][2], order_key=candidates[i][3],
+                       file_name=candidates[i][4], loc_code=candidates[i][5],
+                       unit_price=candidates[i][6])
+                  for i in chosen_idx]
         apply_selected(label, chosen)
 
     conn.close()
