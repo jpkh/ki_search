@@ -24,7 +24,7 @@ from .settings import save_options
 class ScanQRDialog(wx.Dialog):
     def __init__(self, parent, db_path, options):
         super().__init__(parent, title='Scan QR — add components to a location',
-                         size=(900, 560))
+                         size=(1000, 560))
         self.db_path = db_path
         self.options = options
 
@@ -35,7 +35,7 @@ class ScanQRDialog(wx.Dialog):
         # Left: the only input area. Scans and prompt answers are typed
         # here; results are appended to the same box (terminal style).
         self.text = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_PROCESS_ENTER,
-                                size=(640, 440))
+                                size=(740, 440))
         hbox.Add(self.text, proportion=1, flag=wx.EXPAND | wx.ALL, border=10)
 
         # Right column: location, dry-run, supplier, counters, actions.
@@ -75,7 +75,7 @@ class ScanQRDialog(wx.Dialog):
             rb.Bind(wx.EVT_RADIOBUTTON,
                     lambda evt, k=key: self.on_supplier(k))
             self.supplier_radios[key] = rb
-            right.Add(rb, flag=wx.LEFT | wx.TOP, border=5)
+            right.Add(rb, flag=wx.LEFT | wx.TOP, border=10)
 
         right.AddStretchSpacer(1)
 
@@ -87,9 +87,9 @@ class ScanQRDialog(wx.Dialog):
         for key, name in self.counter_names.items():
             label = wx.StaticText(panel, label='')
             self.counter_labels[key] = label
-            right.Add(label, flag=wx.LEFT | wx.TOP, border=2)
+            right.Add(label, flag=wx.LEFT | wx.TOP, border=10)
         self.dry_run_label = wx.StaticText(panel, label='')
-        right.Add(self.dry_run_label, flag=wx.LEFT | wx.TOP, border=2)
+        right.Add(self.dry_run_label, flag=wx.LEFT | wx.TOP, border=10)
 
         right.AddSpacer(10)
 
@@ -148,11 +148,20 @@ class ScanQRDialog(wx.Dialog):
         msgs, prompt = self.session.submit(last)
         out = prefix + ('\n' if prefix else '') + display_line + '\n'
         if msgs:
-            out += '\n'.join(msgs) + '\n'
+            rendered = []
+            for m in msgs:
+                if ' -> ' in m or m.startswith('Not a QR line') \
+                        or m.startswith('Invalid input'):
+                    rendered.append('- ' + m)
+                else:
+                    rendered.append(m)
+            out += '\n'.join(rendered) + '\n'
         if prompt:
+            # The question belongs to the current scan: no blank line yet.
             out += prompt + '\n'
-        # Blank line after every result so the next scan stands out.
-        out += '\n'
+        else:
+            # Scan fully done: one blank line before the next scan.
+            out += '\n'
         self.text.ChangeValue(out)
         self.text.SetInsertionPointEnd()
         self._update_status()
