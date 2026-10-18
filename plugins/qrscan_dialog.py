@@ -72,6 +72,9 @@ class ScanQRDialog(wx.Dialog):
             rb = wx.RadioButton(panel, label=self.SUPPLIER_NAMES[key],
                                 style=wx.RB_GROUP if key == 1 else 0)
             rb.SetValue(key == 1)
+            # DigiKey/Mouser parsing arrives in a later version.
+            if key != 1:
+                rb.Enable(False)
             rb.Bind(wx.EVT_RADIOBUTTON,
                     lambda evt, k=key: self.on_supplier(k))
             self.supplier_radios[key] = rb

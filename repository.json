@@ -1,0 +1,45 @@
+{
+    "$schema": "https://go.kicad.org/pcm/schemas/v1",
+    "packages": [
+        {
+            "name": "KI-Search",
+            "description": "Search components in the PCB editor",
+            "description_full": "Search a local SQLite components database directly inside the KiCad PCB editor. Import LCSC and DigiKey order CSVs (multi-file, supplier auto-detected), track a storage location (LOC) per component, and assign locations by scanning LCSC bag QR codes (Scan QR dialog or tools/qrscan-add.py). Click a supplier part number to open its page on the supplier's site.",
+            "identifier": "com.github.jpkh.ki-search",
+            "type": "plugin",
+            "author": {
+                "name": "Jani Hirvinen",
+                "contact": {
+                    "email": "jphelirc@gmail.com"
+                }
+            },
+            "license": "GPL-3.0",
+            "resources": {
+                "Github": "https://github.com/jpkh/ki_search",
+                "Readme": "https://github.com/jpkh/ki_search/blob/main/README.md"
+            },
+            "tags": [
+                "pcbnew",
+                "search",
+                "components"
+            ],
+            "versions": [
+                {
+                    "version": "1.1.6",
+                    "status": "stable",
+                    "kicad_version": "8.0",
+                    "kicad_version_max": "10.99",
+                    "platforms": [
+                        "linux",
+                        "macos",
+                        "windows"
+                    ],
+                    "download_url": "https://github.com/jpkh/ki_search/releases/download/v1.1.6/ki-search-v1.1.6-20261018.zip",
+                    "download_sha256": "09a60137a2aa71c47f9a61f429e2b4fcee84457188d8fad0556415e0f52ab09f",
+                    "download_size": 37027,
+                    "install_size": 97353
+                }
+            ]
+        }
+    ]
+}

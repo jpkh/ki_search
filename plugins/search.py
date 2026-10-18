@@ -22,6 +22,7 @@ from .config import COLUMNS, default_db_relpath, default_db_filename, plugin_ver
 from .settings import load_options, save_options, SettingsDialog
 from .importer import (get_db_stats, ensure_schema, ImportDialog,
                        set_component_location, get_locations)
+from .qrscan_dialog import ScanQRDialog
 from .log_util import log_message
 
 
@@ -106,6 +107,7 @@ class SearchDialog(wx.Dialog):
             "Wildcards: * = any characters, ? = one character")
         self.search_btn = wx.Button(panel, label="Search")
         self.import_btn = wx.Button(panel, label="Import CSV…")
+        self.scanqr_btn = wx.Button(panel, label="Scan QR…")
         self.settings_btn = wx.Button(panel, label="Settings…")
         hbox1.Add(wx.StaticText(panel, label="Search: "),
                   flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
@@ -123,6 +125,8 @@ class SearchDialog(wx.Dialog):
         hbox1.Add(self.search_btn,
                   flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
         hbox1.Add(self.import_btn,
+                  flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
+        hbox1.Add(self.scanqr_btn,
                   flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=5)
         hbox1.Add(self.settings_btn, flag=wx.ALIGN_CENTER_VERTICAL, border=5)
         vbox.Add(hbox1, flag=wx.EXPAND | wx.ALL, border=10)
@@ -149,6 +153,7 @@ class SearchDialog(wx.Dialog):
         self.search_btn.Bind(wx.EVT_BUTTON, self.on_search)
         self.search_ctrl.Bind(wx.EVT_TEXT_ENTER, self.on_search)
         self.import_btn.Bind(wx.EVT_BUTTON, self.on_import)
+        self.scanqr_btn.Bind(wx.EVT_BUTTON, self.on_scan_qr)
         self.settings_btn.Bind(wx.EVT_BUTTON, self.on_settings)
         self.result_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.on_item_click)
         self.result_list.Bind(wx.EVT_MOTION, self.on_result_motion)
@@ -382,6 +387,16 @@ class SearchDialog(wx.Dialog):
         if dlg.ShowModal() == wx.ID_OK:
             self._refresh_info()
         dlg.Destroy()
+
+    def on_scan_qr(self, event):
+        """Open the Scan QR dialog for bag scanning against the DB."""
+        db_path = self.get_database_path()
+        if not self._ensure_database(db_path):
+            return
+        dlg = ScanQRDialog(self, db_path, self.options)
+        dlg.ShowModal()
+        dlg.Destroy()
+        self._refresh_info()
 
     def on_settings(self, event):
         dlg = SettingsDialog(self, self.options, self.get_database_path())

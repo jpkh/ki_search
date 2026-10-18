@@ -8,24 +8,8 @@
 # Copyright (c) 2026 Jani Hirvinen
 # License: GPL-3.0 - see the LICENSE file
 #
-# Description: Assign a storage location to components by scanning the QR
-# codes on LCSC bags. Each scanned line is parsed for the LCSC product code
-# (pc:), manufacturer part number (pm:), order number (on:) and quantity
-# (qty:). A part is matched in components.db by product code (fallback:
-# manufacturer part number) **and** the order number + quantity taken from
-# the imports table — one bag equals one database row, so rows from other
-# orders or with a different quantity are never touched.
-#
-# Rows that already carry the target location are skipped with a note.
-# Rows marked with a different location ask for confirmation before
-# anything is written.
-#
-# When no exact order/qty match exists (old QR labels with GB order
-# numbers, or bags whose order was never imported), the candidate rows are
-# listed with the quantity-matching one(s) first (marked *), and the user
-# picks a single row number or N for none. In --dry-run mode the same
-# prompts appear but nothing is written; the output reports what would
-# happen.
+# Description: Console frontend for the QR bag scanner. All matching logic
+# lives in plugins/qrscan_core.py (shared with the plugin's Scan QR dialog).
 #
 # Usage:
 #   python qrscan-add.py R15 [LCSC] [--db PATH] [--dry-run] [--yes]
@@ -44,168 +28,29 @@
 ##########################################################
 
 import argparse
+import importlib.util
 import os
-import re
-import shutil
 import sqlite3
 import sys
-import time
+
+# Load the shared core without importing the plugin package (whose
+# __init__.py pulls in pcbnew and wx, unavailable outside KiCad).
+CORE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         '..', 'plugins', 'qrscan_core.py')
+
+
+def _load_core():
+    spec = importlib.util.spec_from_file_location('qrscan_core', CORE_PATH)
+    core = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(core)
+    return core
+
+
+core = _load_core()
 
 DEFAULT_DB = os.path.join(
     os.path.expanduser('~'), 'Documents', 'KiCad', 'ki-search',
     'components.db')
-
-# One QR line holds key:value pairs separated by commas inside braces.
-QR_FIELD_RE = re.compile(r'\b(on|pc|pm|qty|mc|cc|pdi|hp|wc):([^,}\s]+)')
-
-# Candidate rows with their import info: the imports table (joined via
-# components.import_id) carries the order_key and the source CSV file name.
-ROW_SQL = """
-SELECT c.rowid, c.order_qty, c.location_id, i.order_key, i.file_name,
-       l.code AS loc_code, c.unit_price
-FROM components c
-LEFT JOIN imports i ON i.rowid = c.import_id
-LEFT JOIN locations l ON l.id = c.location_id
-WHERE {where}
-"""
-
-
-def parse_qr(line):
-    """Return a dict of the QR fields found in the scanned line."""
-    return dict(QR_FIELD_RE.findall(line))
-
-
-def norm_order(key):
-    """Normalize an order number for comparison.
-
-    The DB stores 'LCSC-2607160614', the QR carries 'WM2607160614' — the
-    numeric part is the stable identity for both. Falls back to a
-    case-insensitive full compare when no digits exist.
-    """
-    digits = re.sub(r'\D', '', key or '')
-    return digits if digits else (key or '').strip().upper()
-
-
-def find_location(conn, code):
-    """Return (id, code, name) of the active location, or None."""
-    return conn.execute(
-        "SELECT id, code, name FROM locations "
-        "WHERE code = ? COLLATE NOCASE AND disabled = 0",
-        (code,)).fetchone()
-
-
-def list_active_locations(conn):
-    return [r[1] for r in conn.execute(
-        "SELECT id, code FROM locations WHERE disabled = 0 ORDER BY id")]
-
-
-def find_candidates(conn, pc, pm):
-    """Rows matching the LCSC product code, else the mfg part number."""
-    if pc:
-        rows = conn.execute(
-            ROW_SQL.format(where="c.lcsc_part_number = ? COLLATE NOCASE"),
-            (pc,)).fetchall()
-        if rows:
-            return rows
-    if pm:
-        rows = conn.execute(
-            ROW_SQL.format(where="c.manufacture_part_number = ? COLLATE NOCASE"),
-            (pm,)).fetchall()
-        if rows:
-            return rows
-    return []
-
-
-def narrow_candidates(rows, on, qty):
-    """Filter rows by order number and quantity. Returns (exact, details).
-
-    exact    = rows whose order number matches (or is unknown on old
-               imports) AND whose quantity matches.
-    details  = human-readable description of the candidate rows for
-               mismatch reporting.
-    """
-    rows = [dict(rowid=r[0], order_qty=r[1], location_id=r[2],
-                 order_key=r[3], file_name=r[4], loc_code=r[5],
-                 unit_price=r[6]) for r in rows]
-
-    def describe(r):
-        source = os.path.basename(r['file_name'] or 'unknown import')
-        loc = r['loc_code'] or '---'
-        price = ' price {:.4f}'.format(r['unit_price']) \
-            if r['unit_price'] is not None else ''
-        return 'row {} qty {} order {} loc {} ({}{})'.format(
-            r['rowid'], r['order_qty'] or '?',
-            r['order_key'] or '?', loc, source, price)
-
-    details = [describe(r) for r in rows]
-
-    order_matched = True
-    if on:
-        want = norm_order(on)
-        with_order = [r for r in rows
-                      if r['order_key'] and norm_order(r['order_key']) == want]
-        unknown_order = [r for r in rows if not r['order_key']]
-        if with_order:
-            rows = with_order
-        elif unknown_order:
-            # Old imports without an order key: order can't be verified.
-            rows = unknown_order
-            order_matched = False
-        else:
-            return [], details
-
-    if qty is not None:
-        qty_rows = [r for r in rows if r['order_qty'] == qty]
-        if not qty_rows:
-            return [], details
-        rows = qty_rows
-
-    if not order_matched and len(rows) > 1:
-        # Multiple rows from unknown orders share the same quantity — the
-        # bag can't be mapped to exactly one row. Let the user pick.
-        return [], details
-
-    return rows, details
-
-
-def ask_yes_no(prompt, pending):
-    """Read a y/n answer. A scanned QR line is kept in pending instead."""
-    sys.stdout.write(prompt)
-    sys.stdout.flush()
-    line = sys.stdin.readline()
-    if line == '':
-        return False
-    answer = line.strip().lower()
-    if answer in ('y', 'yes'):
-        return True
-    if answer in ('', 'n', 'no'):
-        return False
-    # Not an answer: likely another QR scan, keep it for the main loop.
-    pending.append(line)
-    return False
-
-
-def ask_selection(prompt, count, pending):
-    """Read a single row number (1..count) or N for none. A scanned QR
-    line is kept in pending instead."""
-    while True:
-        sys.stdout.write(prompt)
-        sys.stdout.flush()
-        line = sys.stdin.readline()
-        if line == '':
-            return None
-        answer = line.strip().lower()
-        if answer in ('', 'n', 'no', 'none', '0'):
-            return None
-        if answer.isdigit() and 1 <= int(answer) <= count:
-            return int(answer)
-        if re.search(r'\b(pc|pm|on):', answer):
-            # Another QR scan: keep it for the main loop.
-            pending.append(line)
-            return None
-        sys.stdout.write('Invalid input — give one row number or N: ')
-        sys.stdout.flush()
-        prompt = ''
 
 
 def main():
@@ -230,13 +75,14 @@ def main():
         sys.exit(1)
 
     conn = sqlite3.connect(args.db)
-    loc = find_location(conn, args.location)
+    loc = core.find_location(conn, args.location)
     if loc is None:
         print("Location '{}' is not an active code.".format(args.location))
         print('Available locations: {}'.format(
-            ', '.join(list_active_locations(conn))))
+            ', '.join(core.list_active_locations(conn))))
         conn.close()
         sys.exit(1)
+    conn.close()
     loc_id, loc_code, loc_name = loc
     loc_label = loc_code + (' ({})'.format(loc_name) if loc_name else '')
 
@@ -248,161 +94,39 @@ def main():
     print('Scan QR codes now. Type "exit" or press Ctrl+C to stop.')
     print('-' * 60)
 
-    scans = 0
-    found = 0
-    updated_rows = 0
-    already = 0
-    not_found = 0
-    backup_made = False
-    pending = []  # scanned lines that arrived while a prompt was open
+    session = core.ScanSession(args.db, loc_id, loc_code,
+                               dry_run=args.dry_run, auto_yes=args.yes)
 
-    def make_backup():
-        nonlocal backup_made
-        if backup_made:
-            return
-        backup_path = '{}.bak-{}'.format(
-            args.db, time.strftime('%Y%m%d-%H%M%S'))
-        shutil.copy2(args.db, backup_path)
-        print('Backup created: {}'.format(backup_path))
-        backup_made = True
-
-    def update_rows(rows):
-        nonlocal updated_rows
-        if args.dry_run:
-            return
-        make_backup()
-        for r in rows:
-            conn.execute(
-                "UPDATE components SET location_id = ?, location = NULL "
-                "WHERE rowid = ?", (loc_id, r['rowid']))
-        conn.commit()
-        updated_rows += len(rows)
-
-    def apply_selected(label, rows):
-        """Apply the location to the chosen rows: skip rows already at the
-        target location, update fresh rows, ask before overwriting rows
-        marked with a different location."""
-        nonlocal already
-        target_rows = [r for r in rows if r['location_id'] == loc_id]
-        other_rows = [r for r in rows if r['location_id'] != loc_id]
-        overwrite = [r for r in other_rows
-                     if r['location_id'] is not None and r['loc_code']]
-        fresh = [r for r in other_rows if r not in overwrite]
-
-        if target_rows:
-            already += len(target_rows)
-            print('{} -> {} row(s) already at {} — skipped'.format(
-                label, len(target_rows), loc_code))
-
-        if fresh:
-            if args.dry_run:
-                print('{} -> {} [DRY-RUN, {} row(s) would be set]'.format(
-                    label, loc_code, len(fresh)))
-            else:
-                update_rows(fresh)
-                print('{} -> {} ({} row(s) updated)'.format(
-                    label, loc_code, len(fresh)))
-
-        if overwrite:
-            if args.dry_run:
-                print('{} -> {} [DRY-RUN, {} row(s) marked {} would be '
-                      'overwritten]'.format(
-                          label, loc_code, len(overwrite),
-                          ', '.join(r['loc_code'] for r in overwrite)))
-            else:
-                if args.yes or ask_yes_no(
-                        '{} row(s) marked {} — overwrite with {}? (y/n) '.format(
-                            len(overwrite),
-                            ', '.join(r['loc_code'] for r in overwrite),
-                            loc_code),
-                        pending):
-                    update_rows(overwrite)
-                    print('{} -> {} ({} row(s) updated)'.format(
-                        label, loc_code, len(overwrite)))
-                else:
-                    print('{} -> skipped (marked {}, left unchanged)'.format(
-                        label, ', '.join(r['loc_code'] for r in overwrite)))
-
+    prompt = None
     while True:
+        if prompt is not None:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
         try:
-            line = pending.pop(0) if pending else sys.stdin.readline()
+            line = sys.stdin.readline()
         except KeyboardInterrupt:
             break
         if not line:  # EOF
             break
         line = line.strip()
-        if not line:
-            continue
-        if line.lower() in ('exit', 'quit', 'q'):
+        if prompt is None and line.lower() in ('exit', 'quit', 'q'):
             break
-
-        qr = parse_qr(line)
-        pc = qr.get('pc', '')
-        pm = qr.get('pm', '')
-        if not pc and not pm:
-            print('Not a QR line (no pc:/pm:): {}'.format(line))
+        if not line and prompt is None:
             continue
+        msgs, prompt = session.submit(line)
+        for m in msgs:
+            print(m)
 
-        on = qr.get('on', '')
-        qty = None
-        if qr.get('qty', '').isdigit():
-            qty = int(qr['qty'])
-
-        scans += 1
-        label = '{} / {}'.format(pc or '-', pm or '-')
-        candidates = find_candidates(conn, pc, pm)
-        if not candidates:
-            not_found += 1
-            print('{} -> NOT FOUND in DB'.format(label))
-            continue
-
-        exact, details = narrow_candidates(candidates, on, qty)
-        if exact:
-            found += 1
-            apply_selected(label, exact)
-            continue
-
-        # No exact order/qty match: the QR order field is unreliable
-        # (e.g. old GB-prefixed labels) or the bag's order is not in the
-        # DB. Propose the candidate rows and let the user pick one.
-        # Rows whose quantity matches the bag are strong candidates:
-        # listed first and marked with *. In dry-run mode the selection
-        # is still requested, but nothing is written and the output
-        # reports what would happen.
-        found += 1
-        print('{} -> no exact order/qty match. Candidate rows:'.format(label))
-        display_order = list(range(len(candidates)))
-        if qty is not None:
-            display_order.sort(key=lambda i: 0 if candidates[i][1] == qty else 1)
-            if any(candidates[i][1] == qty for i in display_order):
-                print('   (*) = quantity matches the scanned bag')
-        for disp, i in enumerate(display_order, 1):
-            marker = '*' if (qty is not None and candidates[i][1] == qty) else ' '
-            print('   {}. {} {}'.format(disp, marker, details[i]))
-        if args.yes:
-            chosen_idx = display_order
-        else:
-            pick = ask_selection(
-                'Which row matches this bag? (row number, N = none): ',
-                len(candidates), pending)
-            if pick is None:
-                print('{} -> skipped (no row selected)'.format(label))
-                continue
-            chosen_idx = [display_order[pick - 1]]
-        chosen = [dict(rowid=candidates[i][0], order_qty=candidates[i][1],
-                       location_id=candidates[i][2], order_key=candidates[i][3],
-                       file_name=candidates[i][4], loc_code=candidates[i][5],
-                       unit_price=candidates[i][6])
-                  for i in chosen_idx]
-        apply_selected(label, chosen)
-
-    conn.close()
+    session.close()
+    c = session.counters
     print('-' * 60)
     print('Summary: {} scanned, {} found, {} rows updated, '
           '{} already marked, {} not found'.format(
-              scans, found, updated_rows, already, not_found))
+              c['scanned'], c['found'], c['updated'],
+              c['already'], c['not_found']))
 
 
 if __name__ == '__main__':
     main()
+
 

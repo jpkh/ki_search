@@ -73,6 +73,15 @@ search term and press **Enter** (or click **Search**). Double-click a part
 number to open it on the matching supplier's site (LCSC or DigiKey).
 **Settings…** controls the visible columns and database path.
 
+**Scan QR…** opens the bag scanner dialog: one text area keeps the focus for
+the scanner/keyboard (scans and prompt answers are typed there, results are
+appended to the same box), a location pulldown on the right chooses where all
+following scans go, and a **Dry run** checkbox previews without writing.
+The same matching logic as `tools/qrscan-add.py` (shared in
+`plugins/qrscan_core.py`): one bag = one row, already-marked rows are skipped,
+overwrites and uncertain scans ask before changing anything, and a timestamped
+backup of the database is made before the first write.
+
 ## Tools
 
 `tools/processcvs-new.py` bulk-imports supplier CSV files into the database
@@ -99,10 +108,11 @@ so one bag equals exactly one database row — rows from other orders or with a
 different quantity are never touched. Rows already at the target location are
 skipped with a note; overwriting a different location asks for confirmation.
 When no exact order/qty match exists (e.g. old bags whose QR order field
-reads `GB…` instead of `WM…`), the candidate rows are listed and you pick the
-matching one(s) by number (`1,3`) or `N` for none. A timestamped backup of
-the database is made before the first write; `--dry-run` previews without
-changing anything and `--yes` auto-selects every proposal:
+reads `GB…` instead of `WM…`), the candidate rows are listed with the
+quantity-matching one(s) first and marked `*`, and you pick the matching
+row by its number (or `N` for none). A timestamped backup of the database
+is made before the first write; `--dry-run` previews without changing
+anything and `--yes` auto-selects every proposal:
 
 ```sh
 python tools/qrscan-add.py R15 --db C:\Users\jpkh\Documents\KiCad\ki-search\components.db
